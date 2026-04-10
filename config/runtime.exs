@@ -84,9 +84,11 @@ if config_env() == :prod do
   # Check `Plug.SSL` for all available options in `force_ssl`.
 end
 
-config :alpaca_trader,
-  alpaca_base_url: System.fetch_env!("ALPACA_BASE_URL"),
-  # paper:  https://paper-api.alpaca.markets
-  # live:   https://api.alpaca.markets
-  alpaca_key_id: System.fetch_env!("ALPACA_KEY_ID"),
-  alpaca_secret_key: System.fetch_env!("ALPACA_SECRET_KEY")
+if config_env() != :test do
+  config :alpaca_trader,
+    alpaca_base_url: System.fetch_env!("ALPACA_BASE_URL"),
+    # paper:  https://paper-api.alpaca.markets
+    # live:   https://api.alpaca.markets
+    alpaca_key_id: System.fetch_env!("ALPACA_KEY_ID"),
+    alpaca_secret_key: System.fetch_env!("ALPACA_SECRET_KEY")
+end

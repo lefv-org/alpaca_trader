@@ -56,4 +56,32 @@ defmodule AlpacaTrader.Alpaca.Client do
   def replace_order(order_id, params), do: patch("/v2/orders/#{order_id}", params)
   def cancel_order(order_id), do: delete("/v2/orders/#{order_id}")
   def cancel_all_orders, do: delete("/v2/orders")
+
+  # --- Positions ---
+
+  def list_positions, do: get("/v2/positions")
+  def get_position(symbol), do: get("/v2/positions/#{symbol}")
+  def close_position(symbol, params \\ %{}), do: delete("/v2/positions/#{symbol}", params)
+  def close_all_positions(params \\ %{}), do: delete("/v2/positions", params)
+
+  # --- Assets ---
+
+  def list_assets(params \\ %{}), do: get("/v2/assets", params)
+  def get_asset(symbol), do: get("/v2/assets/#{symbol}")
+
+  # --- Watchlists ---
+
+  def list_watchlists, do: get("/v2/watchlists")
+  def create_watchlist(params), do: post("/v2/watchlists", params)
+  def get_watchlist(id), do: get("/v2/watchlists/#{id}")
+  def update_watchlist(id, params), do: put("/v2/watchlists/#{id}", params)
+  def delete_watchlist(id), do: delete("/v2/watchlists/#{id}")
+  def add_to_watchlist(id, symbol), do: post("/v2/watchlists/#{id}", %{symbol: symbol})
+  def remove_from_watchlist(id, symbol), do: delete("/v2/watchlists/#{id}/#{symbol}")
+
+  # --- Market ---
+
+  def get_clock, do: get("/v2/clock")
+  def get_calendar(params \\ %{}), do: get("/v2/calendar", params)
+  def get_corporate_actions(params \\ %{}), do: get("/v2/corporate_actions/announcements", params)
 end

@@ -142,4 +142,198 @@ defmodule AlpacaTrader.Alpaca.ClientTest do
       assert {:ok, _} = Client.cancel_all_orders()
     end
   end
+
+  # --- Positions ---
+
+  describe "list_positions/0" do
+    test "makes GET to /v2/positions" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/positions"
+        Req.Test.json(conn, [%{"symbol" => "AAPL", "qty" => "10"}])
+      end)
+
+      assert {:ok, [%{"symbol" => "AAPL"}]} = Client.list_positions()
+    end
+  end
+
+  describe "get_position/1" do
+    test "makes GET to /v2/positions/:symbol" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/positions/AAPL"
+        Req.Test.json(conn, %{"symbol" => "AAPL"})
+      end)
+
+      assert {:ok, %{"symbol" => "AAPL"}} = Client.get_position("AAPL")
+    end
+  end
+
+  describe "close_position/2" do
+    test "makes DELETE to /v2/positions/:symbol" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/v2/positions/AAPL"
+        Req.Test.json(conn, %{"symbol" => "AAPL"})
+      end)
+
+      assert {:ok, _} = Client.close_position("AAPL", %{})
+    end
+  end
+
+  describe "close_all_positions/1" do
+    test "makes DELETE to /v2/positions" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/v2/positions"
+        Req.Test.json(conn, [])
+      end)
+
+      assert {:ok, _} = Client.close_all_positions(%{cancel_orders: true})
+    end
+  end
+
+  # --- Assets ---
+
+  describe "list_assets/1" do
+    test "makes GET to /v2/assets" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/assets"
+        Req.Test.json(conn, [%{"symbol" => "AAPL", "class" => "us_equity"}])
+      end)
+
+      assert {:ok, [%{"symbol" => "AAPL"}]} = Client.list_assets(%{status: "active"})
+    end
+  end
+
+  describe "get_asset/1" do
+    test "makes GET to /v2/assets/:symbol" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/assets/AAPL"
+        Req.Test.json(conn, %{"symbol" => "AAPL"})
+      end)
+
+      assert {:ok, %{"symbol" => "AAPL"}} = Client.get_asset("AAPL")
+    end
+  end
+
+  # --- Watchlists ---
+
+  describe "list_watchlists/0" do
+    test "makes GET to /v2/watchlists" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/watchlists"
+        Req.Test.json(conn, [%{"id" => "wl1", "name" => "My List"}])
+      end)
+
+      assert {:ok, [%{"id" => "wl1"}]} = Client.list_watchlists()
+    end
+  end
+
+  describe "create_watchlist/1" do
+    test "makes POST to /v2/watchlists" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "POST"
+        assert conn.request_path == "/v2/watchlists"
+        Req.Test.json(conn, %{"id" => "wl1", "name" => "Tech"})
+      end)
+
+      assert {:ok, %{"id" => "wl1"}} =
+               Client.create_watchlist(%{name: "Tech", symbols: ["AAPL"]})
+    end
+  end
+
+  describe "get_watchlist/1" do
+    test "makes GET to /v2/watchlists/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/watchlists/wl1"
+        Req.Test.json(conn, %{"id" => "wl1", "assets" => []})
+      end)
+
+      assert {:ok, %{"id" => "wl1"}} = Client.get_watchlist("wl1")
+    end
+  end
+
+  describe "update_watchlist/2" do
+    test "makes PUT to /v2/watchlists/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "PUT"
+        assert conn.request_path == "/v2/watchlists/wl1"
+        Req.Test.json(conn, %{"id" => "wl1"})
+      end)
+
+      assert {:ok, _} =
+               Client.update_watchlist("wl1", %{name: "Tech 2", symbols: ["AAPL", "MSFT"]})
+    end
+  end
+
+  describe "delete_watchlist/1" do
+    test "makes DELETE to /v2/watchlists/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/v2/watchlists/wl1"
+        Req.Test.json(conn, %{})
+      end)
+
+      assert {:ok, _} = Client.delete_watchlist("wl1")
+    end
+  end
+
+  describe "add_to_watchlist/2" do
+    test "makes POST to /v2/watchlists/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "POST"
+        assert conn.request_path == "/v2/watchlists/wl1"
+        Req.Test.json(conn, %{"id" => "wl1"})
+      end)
+
+      assert {:ok, _} = Client.add_to_watchlist("wl1", "TSLA")
+    end
+  end
+
+  describe "remove_from_watchlist/2" do
+    test "makes DELETE to /v2/watchlists/:id/:symbol" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/v2/watchlists/wl1/TSLA"
+        Req.Test.json(conn, %{"id" => "wl1"})
+      end)
+
+      assert {:ok, _} = Client.remove_from_watchlist("wl1", "TSLA")
+    end
+  end
+
+  # --- Market ---
+
+  describe "get_clock/0" do
+    test "makes GET to /v2/clock" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/clock"
+        Req.Test.json(conn, %{"is_open" => true, "next_open" => "2026-04-11T09:30:00-04:00"})
+      end)
+
+      assert {:ok, %{"is_open" => true}} = Client.get_clock()
+    end
+  end
+
+  describe "get_calendar/1" do
+    test "makes GET to /v2/calendar" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/calendar"
+        Req.Test.json(conn, [%{"date" => "2026-04-10", "open" => "09:30", "close" => "16:00"}])
+      end)
+
+      assert {:ok, [%{"date" => "2026-04-10"}]} = Client.get_calendar(%{start: "2026-04-10"})
+    end
+  end
+
+  describe "get_corporate_actions/1" do
+    test "makes GET to /v2/corporate_actions/announcements" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.request_path == "/v2/corporate_actions/announcements"
+        Req.Test.json(conn, [%{"id" => "ca1", "ca_type" => "dividend"}])
+      end)
+
+      assert {:ok, [%{"id" => "ca1"}]} =
+               Client.get_corporate_actions(%{ca_types: "dividend", since: "2026-01-01"})
+    end
+  end
 end

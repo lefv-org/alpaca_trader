@@ -356,5 +356,116 @@
         </form>
       </div>
     </div>
+
+    <%!-- POSITIONS --%>
+    <div :if={@tab == :positions} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Positions</h2>
+
+      <%!-- List Positions --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">List All Positions</div>
+        <form phx-submit="call">
+          <input type="hidden" name="action" value="list_positions" />
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Position --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Position</div>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="get_position" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol *</div>
+            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Close Position --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Close Position</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="close_position" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol *</div>
+            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">qty (optional)</div>
+            <input type="text" name="qty" placeholder="5" class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">percentage (optional)</div>
+            <input type="text" name="percentage" placeholder="0.5" class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Close</button>
+        </form>
+      </div>
+
+      <%!-- Close All Positions --%>
+      <div class="bg-gray-900 rounded p-4 border border-red-900">
+        <div class="font-bold mb-3 text-red-400">Close All Positions</div>
+        <form phx-submit="call" class="flex gap-4 items-center">
+          <input type="hidden" name="action" value="close_all_positions" />
+          <div class="flex items-center gap-2">
+            <input type="checkbox" name="cancel_orders" value="true" id="cancel_orders" class="rounded" />
+            <label for="cancel_orders" class="text-gray-400 text-xs">Also cancel open orders</label>
+          </div>
+          <button
+            type="submit"
+            onclick="return confirm('Close ALL positions? This cannot be undone.')"
+            class="px-3 py-1 bg-red-800 rounded hover:bg-red-700 text-xs"
+          >
+            Close All
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <%!-- ASSETS --%>
+    <div :if={@tab == :assets} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Assets</h2>
+
+      <%!-- List Assets --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">List Assets</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="list_assets" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">status</div>
+            <select name="status" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="">all</option><option>active</option><option>inactive</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">asset_class</div>
+            <select name="asset_class" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="">all</option><option>us_equity</option><option>crypto</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">exchange</div>
+            <input type="text" name="exchange" placeholder="NASDAQ" class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Asset --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Asset</div>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="get_asset" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol or asset ID *</div>
+            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-40" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+    </div>
+
   </div>
 </div>

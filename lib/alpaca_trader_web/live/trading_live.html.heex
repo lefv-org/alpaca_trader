@@ -125,3 +125,236 @@
         </div>
       <% end %>
     </div>
+
+    <%!-- ACCOUNT --%>
+    <div :if={@tab == :account} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Account</h2>
+
+      <%!-- Get Account --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">Get Account</div>
+        <form phx-submit="call">
+          <input type="hidden" name="action" value="get_account" />
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Account Config --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">Get Account Config</div>
+        <form phx-submit="call">
+          <input type="hidden" name="action" value="get_account_config" />
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Update Account Config --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Update Account Config</div>
+        <form phx-submit="call" class="space-y-2">
+          <input type="hidden" name="action" value="update_account_config" />
+          <div class="flex items-center gap-2">
+            <label class="text-gray-400 w-40 text-xs">dtbp_check</label>
+            <select name="dtbp_check" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="">-- unchanged --</option>
+              <option>both</option><option>entry</option><option>exit</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-2">
+            <label class="text-gray-400 w-40 text-xs">no_shorting</label>
+            <select name="no_shorting" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="">-- unchanged --</option>
+              <option>true</option><option>false</option>
+            </select>
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Activities --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Activities</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="get_activities" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">activity_type</div>
+            <input type="text" name="activity_type" placeholder="FILL" class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">date</div>
+            <input type="date" name="date" class="bg-gray-800 rounded px-2 py-1 text-xs" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">page_size</div>
+            <input type="number" name="page_size" placeholder="50" class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Portfolio History --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Portfolio History</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="get_portfolio_history" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">period</div>
+            <select name="period" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>1D</option><option>1W</option><option>1M</option><option>3M</option><option>1A</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">timeframe</div>
+            <select name="timeframe" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>1Min</option><option>5Min</option><option>15Min</option><option>1H</option><option>1D</option>
+            </select>
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+    </div>
+
+    <%!-- ORDERS --%>
+    <div :if={@tab == :orders} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Orders</h2>
+
+      <%!-- List Orders --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">List Orders</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="list_orders" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">status</div>
+            <select name="status" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>open</option><option>closed</option><option>all</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">limit</div>
+            <input type="number" name="limit" placeholder="50" class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">direction</div>
+            <select name="direction" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>desc</option><option>asc</option>
+            </select>
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Create Order --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Create Order</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="create_order" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol *</div>
+            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">qty</div>
+            <input type="text" name="qty" placeholder="1" class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">notional</div>
+            <input type="text" name="notional" placeholder="100.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">side *</div>
+            <select name="side" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>buy</option><option>sell</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">type *</div>
+            <select name="type" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>market</option><option>limit</option><option>stop</option><option>stop_limit</option><option>trailing_stop</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">time_in_force *</div>
+            <select name="time_in_force" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option>day</option><option>gtc</option><option>opg</option><option>cls</option><option>ioc</option><option>fok</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">limit_price</div>
+            <input type="text" name="limit_price" placeholder="150.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">stop_price</div>
+            <input type="text" name="stop_price" placeholder="145.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Submit Order</button>
+        </form>
+      </div>
+
+      <%!-- Get Order --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Order</div>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="get_order" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">order_id *</div>
+            <input type="text" name="order_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Replace Order --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Replace Order</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="replace_order" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">order_id *</div>
+            <input type="text" name="order_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">qty</div>
+            <input type="text" name="qty" placeholder="2" class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">limit_price</div>
+            <input type="text" name="limit_price" placeholder="155.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">stop_price</div>
+            <input type="text" name="stop_price" placeholder="150.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Cancel Order --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Cancel Order</div>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="cancel_order" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">order_id *</div>
+            <input type="text" name="order_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Cancel</button>
+        </form>
+      </div>
+
+      <%!-- Cancel All Orders --%>
+      <div class="bg-gray-900 rounded p-4 border border-red-900">
+        <div class="font-bold mb-3 text-red-400">Cancel All Orders</div>
+        <form phx-submit="call">
+          <input type="hidden" name="action" value="cancel_all_orders" />
+          <button
+            type="submit"
+            onclick="return confirm('Cancel ALL open orders? This cannot be undone.')"
+            class="px-3 py-1 bg-red-800 rounded hover:bg-red-700 text-xs"
+          >
+            Cancel All
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

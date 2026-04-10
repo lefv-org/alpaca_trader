@@ -17,7 +17,7 @@ defmodule AlpacaTraderWeb.Router do
   scope "/", AlpacaTraderWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", TradingLive, :index
   end
 
   # Other scopes may use custom stacks.

@@ -60,6 +60,15 @@ defmodule AlpacaTraderWeb.TradingLive do
 
   # --- Action dispatch ---
 
+  defp dispatch("refresh_dashboard", _) do
+    with {:ok, account} <- Client.get_account(),
+         {:ok, positions} <- Client.list_positions(),
+         {:ok, orders} <- Client.list_orders(%{status: "all", limit: 10}),
+         {:ok, history} <- Client.get_portfolio_history(%{period: "1D", timeframe: "1H"}) do
+      {:ok, %{account: account, positions: positions, orders: orders, history: history}}
+    end
+  end
+
   defp dispatch("get_account", _), do: Client.get_account()
   defp dispatch("get_account_config", _), do: Client.get_account_config()
   defp dispatch("update_account_config", p), do: Client.update_account_config(p)

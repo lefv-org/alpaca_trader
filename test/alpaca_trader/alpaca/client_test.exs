@@ -63,4 +63,83 @@ defmodule AlpacaTrader.Alpaca.ClientTest do
       assert {:ok, %{"equity" => [10_000.0]}} = Client.get_portfolio_history(%{period: "1D"})
     end
   end
+
+  describe "list_orders/1" do
+    test "makes GET to /v2/orders" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "GET"
+        assert conn.request_path == "/v2/orders"
+        Req.Test.json(conn, [%{"id" => "o1", "status" => "new"}])
+      end)
+
+      assert {:ok, [%{"id" => "o1"}]} = Client.list_orders(%{status: "open"})
+    end
+  end
+
+  describe "create_order/1" do
+    test "makes POST to /v2/orders" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "POST"
+        assert conn.request_path == "/v2/orders"
+        Req.Test.json(conn, %{"id" => "o1", "symbol" => "AAPL"})
+      end)
+
+      assert {:ok, %{"id" => "o1"}} =
+               Client.create_order(%{
+                 symbol: "AAPL",
+                 qty: "1",
+                 side: "buy",
+                 type: "market",
+                 time_in_force: "day"
+               })
+    end
+  end
+
+  describe "get_order/1" do
+    test "makes GET to /v2/orders/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "GET"
+        assert conn.request_path == "/v2/orders/o1"
+        Req.Test.json(conn, %{"id" => "o1"})
+      end)
+
+      assert {:ok, %{"id" => "o1"}} = Client.get_order("o1")
+    end
+  end
+
+  describe "replace_order/2" do
+    test "makes PATCH to /v2/orders/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "PATCH"
+        assert conn.request_path == "/v2/orders/o1"
+        Req.Test.json(conn, %{"id" => "o1", "qty" => "2"})
+      end)
+
+      assert {:ok, %{"id" => "o1"}} = Client.replace_order("o1", %{qty: "2"})
+    end
+  end
+
+  describe "cancel_order/1" do
+    test "makes DELETE to /v2/orders/:id" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/v2/orders/o1"
+        Req.Test.json(conn, %{})
+      end)
+
+      assert {:ok, _} = Client.cancel_order("o1")
+    end
+  end
+
+  describe "cancel_all_orders/0" do
+    test "makes DELETE to /v2/orders" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "DELETE"
+        assert conn.request_path == "/v2/orders"
+        Req.Test.json(conn, [])
+      end)
+
+      assert {:ok, _} = Client.cancel_all_orders()
+    end
+  end
 end

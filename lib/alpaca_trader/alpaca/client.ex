@@ -47,4 +47,13 @@ defmodule AlpacaTrader.Alpaca.Client do
   def update_account_config(params), do: patch("/v2/account/configurations", params)
   def get_activities(params \\ %{}), do: get("/v2/account/activities", params)
   def get_portfolio_history(params \\ %{}), do: get("/v2/account/portfolio/history", params)
+
+  # --- Orders ---
+
+  def list_orders(params \\ %{}), do: get("/v2/orders", params)
+  def create_order(params), do: post("/v2/orders", params)
+  def get_order(order_id), do: get("/v2/orders/#{order_id}")
+  def replace_order(order_id, params), do: patch("/v2/orders/#{order_id}", params)
+  def cancel_order(order_id), do: delete("/v2/orders/#{order_id}")
+  def cancel_all_orders, do: delete("/v2/orders")
 end

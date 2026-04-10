@@ -467,5 +467,185 @@
       </div>
     </div>
 
+    <%!-- WATCHLISTS --%>
+    <div :if={@tab == :watchlists} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Watchlists</h2>
+
+      <%!-- List Watchlists --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">List Watchlists</div>
+        <form phx-submit="call">
+          <input type="hidden" name="action" value="list_watchlists" />
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Create Watchlist --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Create Watchlist</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="create_watchlist" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">name *</div>
+            <input type="text" name="name" placeholder="My Watchlist" required class="bg-gray-800 rounded px-2 py-1 text-xs w-40" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbols (comma-separated)</div>
+            <input type="text" name="symbols" placeholder="AAPL, MSFT, TSLA" class="bg-gray-800 rounded px-2 py-1 text-xs w-56" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Create</button>
+        </form>
+      </div>
+
+      <%!-- Get Watchlist --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Watchlist</div>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="get_watchlist" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
+            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Update Watchlist --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Update Watchlist (replaces symbol list)</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="update_watchlist" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
+            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">name *</div>
+            <input type="text" name="name" placeholder="New Name" required class="bg-gray-800 rounded px-2 py-1 text-xs w-36" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbols (comma-separated) *</div>
+            <input type="text" name="symbols" placeholder="AAPL, MSFT" class="bg-gray-800 rounded px-2 py-1 text-xs w-48" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Update</button>
+        </form>
+      </div>
+
+      <%!-- Delete Watchlist --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Delete Watchlist</div>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="delete_watchlist" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
+            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Delete</button>
+        </form>
+      </div>
+
+      <%!-- Add to Watchlist --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Add Symbol to Watchlist</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="add_to_watchlist" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
+            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol *</div>
+            <input type="text" name="symbol" placeholder="TSLA" required class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Add</button>
+        </form>
+      </div>
+
+      <%!-- Remove from Watchlist --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Remove Symbol from Watchlist</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="remove_from_watchlist" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
+            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol *</div>
+            <input type="text" name="symbol" placeholder="TSLA" required class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Remove</button>
+        </form>
+      </div>
+    </div>
+
+    <%!-- MARKET --%>
+    <div :if={@tab == :market} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Market</h2>
+
+      <%!-- Get Clock --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">Get Clock</div>
+        <form phx-submit="call">
+          <input type="hidden" name="action" value="get_clock" />
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Calendar --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Calendar</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="get_calendar" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">start</div>
+            <input type="date" name="start" class="bg-gray-800 rounded px-2 py-1 text-xs" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">end</div>
+            <input type="date" name="end" class="bg-gray-800 rounded px-2 py-1 text-xs" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+
+      <%!-- Get Corporate Actions --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-3">Get Corporate Actions</div>
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
+          <input type="hidden" name="action" value="get_corporate_actions" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">ca_types</div>
+            <select name="ca_types" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="">all</option>
+              <option>dividend</option><option>merger</option><option>spinoff</option><option>split</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">since</div>
+            <input type="date" name="since" class="bg-gray-800 rounded px-2 py-1 text-xs" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">until</div>
+            <input type="date" name="until" class="bg-gray-800 rounded px-2 py-1 text-xs" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol</div>
+            <input type="text" name="symbol" placeholder="AAPL" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+        </form>
+      </div>
+    </div>
+
+    <%!-- Shared result panel — visible on all non-dashboard tabs --%>
+    <div :if={@tab != :dashboard && (@result != nil || @error != nil)} class="mt-6">
+      <div class="text-gray-500 text-xs uppercase tracking-wide mb-2">Response</div>
+      <div :if={@error} class="bg-red-950 border border-red-800 rounded p-4 text-red-300 text-xs">
+        <%= @error %>
+      </div>
+      <pre :if={@result != nil && @error == nil} class="bg-gray-900 border border-gray-700 rounded p-4 text-green-300 text-xs overflow-auto max-h-96 whitespace-pre-wrap"><%= Jason.encode!(@result, pretty: true) %></pre>
+    </div>
+
   </div>
 </div>

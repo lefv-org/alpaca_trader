@@ -43,7 +43,12 @@ log = fn text ->
   IO.puts(line)
 end
 
+# Record starting equity for delta calculation
+{:ok, start_account} = Client.get_account()
+start_equity = start_account["equity"] |> to_string() |> Float.parse() |> elem(0)
+
 log.("═══ ARBITRAGE MONITOR STARTED (#{iterations} iterations, 60s interval) ═══")
+log.("Starting equity: $#{Float.round(start_equity, 2)}")
 log.("Assets: #{asset_count} | Bars: #{BarsStore.count()} symbols | Pairs: #{length(AssetRelationships.substitute_pairs())} sub + #{length(AssetRelationships.complement_pairs())} comp")
 
 for i <- 1..iterations do
@@ -73,8 +78,21 @@ for i <- 1..iterations do
   }
 
   discovery_count = AlpacaTrader.Arbitrage.DiscoveryScanner.scanned_count()
-  log.("Market: open=#{clock["is_open"]} | Equity: $#{account["equity"]} | Positions: #{length(positions)} | Quotes: #{map_size(snapshots)}")
-  log.("Open pair positions: #{PairPositionStore.open_count()} | Discovery progress: #{discovery_count}/#{AssetStore.count()} assets scanned")
+  dynamic_pairs = AlpacaTrader.Arbitrage.PairBuilder.pair_count()
+
+  cash = account["cash"] || "?"
+  equity = account["equity"] || "?"
+  buying_power = account["buying_power"] || "?"
+  portfolio_value = account["portfolio_value"] || equity
+  unrealized_pl = account["unrealized_pl"] || "?"
+
+  log.("┌─────────────────────────────────────────────────")
+  log.("│ PORTFOLIO: equity=$#{equity}  cash=$#{cash}")
+  log.("│ buying_power=$#{buying_power}  unrealized_P&L=$#{unrealized_pl}")
+  log.("│ Alpaca positions: #{length(positions)}  |  Pair positions: #{PairPositionStore.open_count()}")
+  log.("│ Market: #{if clock["is_open"], do: "OPEN", else: "CLOSED"}  |  Quotes: #{map_size(snapshots)}  |  Dynamic pairs: #{dynamic_pairs}")
+  log.("│ Discovery: #{discovery_count}/#{AssetStore.count()} assets scanned")
+  log.("└─────────────────────────────────────────────────")
 
   # Show open position status
   for pos <- PairPositionStore.open_positions() do
@@ -159,9 +177,33 @@ for i <- 1..iterations do
   end
 end
 
+{:ok, end_account} = Client.get_account()
+end_equity = end_account["equity"] |> to_string() |> Float.parse() |> elem(0)
+delta = end_equity - start_equity
+delta_pct = delta / start_equity * 100
+
 log.("")
-log.("═══ MONITOR COMPLETE ═══")
-log.("Final open positions: #{PairPositionStore.open_count()}")
-for pos <- PairPositionStore.open_positions() do
-  log.("  #{pos.asset_a}↔#{pos.asset_b} bars=#{pos.bars_held} z=#{pos.current_z_score} status=#{pos.status}")
+log.("═══════════════════════════════════════════════════")
+log.("  MONITOR COMPLETE")
+log.("═══════════════════════════════════════════════════")
+log.("")
+log.("┌─ PORTFOLIO SUMMARY ─────────────────────────────")
+log.("│ Starting equity:   $#{Float.round(start_equity, 2)}")
+log.("│ Ending equity:     $#{Float.round(end_equity, 2)}")
+log.("│ Change:            $#{Float.round(delta, 2)} (#{Float.round(delta_pct, 4)}%)")
+log.("│ Cash:              $#{end_account["cash"]}")
+log.("│ Buying power:      $#{end_account["buying_power"]}")
+log.("│ Unrealized P&L:    $#{end_account["unrealized_pl"]}")
+log.("│")
+log.("│ Alpaca positions:  #{length(end_account["portfolio_value"] || [])}")
+log.("│ Pair positions:    #{PairPositionStore.open_count()}")
+log.("│ Dynamic pairs:     #{AlpacaTrader.Arbitrage.PairBuilder.pair_count()}")
+log.("│ Assets discovered: #{AlpacaTrader.Arbitrage.DiscoveryScanner.scanned_count()}")
+log.("└─────────────────────────────────────────────────")
+log.("")
+for pos <- PairPositionStore.open_positions() |> Enum.take(20) do
+  log.("  #{pos.asset_a}↔#{pos.asset_b} bars=#{pos.bars_held} z=#{pos.current_z_score}")
+end
+if PairPositionStore.open_count() > 20 do
+  log.("  ... and #{PairPositionStore.open_count() - 20} more")
 end

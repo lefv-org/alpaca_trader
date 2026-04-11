@@ -107,6 +107,11 @@ defmodule AlpacaTrader.Alpaca.Client do
     data_client() |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined]) |> handle()
   end
 
+  def get_stock_snapshots(symbols) when is_list(symbols) do
+    joined = Enum.join(symbols, ",")
+    data_client() |> Req.get(url: "/v2/stocks/snapshots", params: [symbols: joined, feed: "iex"]) |> handle()
+  end
+
   def get_stock_bars(symbols, params \\ %{}) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
     start = Date.utc_today() |> Date.add(-90) |> Date.to_iso8601()

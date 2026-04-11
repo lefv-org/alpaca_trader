@@ -210,10 +210,10 @@ defmodule AlpacaTrader.EngineTest do
 
       ctx = build_context(%{quotes: %{}})
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "AAPL")
-      # Z-score of correlated series with no divergence should be near 0 → TAKE PROFIT
+      # Z-score of correlated series with no divergence should be near 0 → exit
       assert result.result == true
       assert result.action == :exit
-      assert result.reason =~ "TAKE PROFIT"
+      assert result.reason =~ "REVERSION" or result.reason =~ "PROFIT"
     end
 
     test "TIME EXIT: exits after max bars held" do

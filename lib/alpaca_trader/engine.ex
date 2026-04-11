@@ -9,7 +9,7 @@ defmodule AlpacaTrader.Engine do
 
   defmodule MarketContext do
     @derive Jason.Encoder
-    defstruct [:symbol, :account, :position, :clock, :asset, :bars, :positions, :orders, :quotes]
+    defstruct [:symbol, :account, :position, :clock, :asset, :bars, :positions, :orders, :quotes, :prices]
   end
 
   defmodule PurchaseContext do
@@ -112,53 +112,103 @@ defmodule AlpacaTrader.Engine do
 
   # ── EXIT CONDITIONS ────────────────────────────────────────
 
+  # Minimum profit to take (0.5% covers round-trip trading costs)
+  @profit_target_pct 0.5
+
   defp check_exit_conditions(pos, asset, related) do
     current = recompute_z_score(pos.asset_a, pos.asset_b)
 
-    # Update the position's current z-score and bar count
-    if current do
-      PairPositionStore.tick(pos.id, current.z_score)
-    else
-      PairPositionStore.tick(pos.id, pos.current_z_score)
-    end
+    # Get current prices for P&L calculation
+    price_a = get_current_price(pos.asset_a)
+    price_b = get_current_price(pos.asset_b)
+    pnl = compute_pnl(pos, price_a, price_b)
+
+    # Update tracking
+    z = if current, do: current.z_score, else: pos.current_z_score
+    PairPositionStore.tick(pos.id, z)
 
     cond do
-      # 1. STOP LOSS: z-score diverged further
+      # 1. PROFIT TARGET: spread moved in our favor → SELL
+      pnl != nil and pnl.profit_pct >= @profit_target_pct ->
+        exit_signal(asset, related, pos,
+          "TAKE PROFIT: #{Float.round(pnl.profit_pct, 2)}% gain ($#{Float.round(pnl.dollar_pnl, 2)})")
+
+      # 2. STOP LOSS: z-score diverged further
       current != nil and abs(current.z_score) >= pos.stop_z_threshold ->
         exit_signal(asset, related, pos,
           "STOP LOSS: z=#{current.z_score} exceeded #{pos.stop_z_threshold}")
 
-      # 2. TIME EXIT: held too long
+      # 3. CUT LOSS: losing more than 2%
+      pnl != nil and pnl.profit_pct <= -2.0 ->
+        exit_signal(asset, related, pos,
+          "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)})")
+
+      # 4. TIME EXIT: held too long
       pos.bars_held >= pos.max_hold_bars ->
         exit_signal(asset, related, pos,
-          "TIME EXIT: held #{pos.bars_held} bars (max #{pos.max_hold_bars})")
+          "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}")
 
-      # 3. COINTEGRATION BROKEN: can't compute z-score anymore
+      # 5. COINTEGRATION BROKEN: can't compute z-score anymore
       current == nil ->
         exit_signal(asset, related, pos,
-          "PAIR BROKEN: cannot compute spread")
+          "PAIR BROKEN: cannot compute spread, P&L=#{format_pnl(pnl)}")
 
-      # 4. TAKE PROFIT: z-score reverted toward mean
+      # 6. Z-SCORE REVERSION: spread reverted to mean
       abs(current.z_score) <= pos.exit_z_threshold ->
         exit_signal(asset, related, pos,
-          "TAKE PROFIT: z=#{current.z_score} reverted below #{pos.exit_z_threshold}")
+          "Z-REVERSION: z=#{current.z_score}, P&L=#{format_pnl(pnl)}")
 
-      # 5. HOLD: still waiting for reversion
+      # 7. HOLD: still waiting
       true ->
         {:ok,
          %ArbitragePosition{
            result: false,
            asset: asset,
-           reason: "HOLD: z=#{current.z_score}, waiting (#{pos.bars_held}/#{pos.max_hold_bars} bars)",
+           reason: "HOLD: z=#{z}, P&L=#{format_pnl(pnl)} (#{pos.bars_held}/#{pos.max_hold_bars} bars)",
            related_positions: related,
            action: :hold,
            tier: pos.tier,
            pair_asset: if(pos.asset_a == asset, do: pos.asset_b, else: pos.asset_a),
-           z_score: current.z_score,
+           z_score: z,
            timestamp: DateTime.utc_now()
          }}
     end
   end
+
+  defp compute_pnl(pos, price_a, price_b) do
+    if pos.entry_price_a && pos.entry_price_b && price_a && price_b &&
+       pos.entry_price_a > 0 && pos.entry_price_b > 0 do
+      # P&L depends on direction
+      {long_entry, long_current, short_entry, short_current} =
+        case pos.direction do
+          :long_a_short_b ->
+            {pos.entry_price_a, price_a, pos.entry_price_b, price_b}
+          :long_b_short_a ->
+            {pos.entry_price_b, price_b, pos.entry_price_a, price_a}
+        end
+
+      long_pnl = (long_current - long_entry) / long_entry * 100
+      short_pnl = (short_entry - short_current) / short_entry * 100
+      profit_pct = (long_pnl + short_pnl) / 2
+      dollar_pnl = (long_current - long_entry) + (short_entry - short_current)
+
+      %{profit_pct: profit_pct, dollar_pnl: dollar_pnl,
+        long_pnl: long_pnl, short_pnl: short_pnl}
+    else
+      nil
+    end
+  end
+
+  defp get_current_price(symbol) do
+    case BarsStore.get_closes(symbol) do
+      {:ok, closes} when closes != [] -> List.last(closes)
+      _ -> nil
+    end
+  end
+
+  defp format_pnl(nil), do: "n/a"
+  defp format_pnl(%{profit_pct: pct, dollar_pnl: dollar}),
+    do: "#{Float.round(pct, 2)}% ($#{Float.round(dollar, 2)})"
 
   defp exit_signal(asset, related, pos, reason) do
     {:ok,
@@ -337,7 +387,9 @@ defmodule AlpacaTrader.Engine do
         direction: arb.direction,
         tier: arb.tier,
         z_score: arb.z_score,
-        hedge_ratio: arb.hedge_ratio
+        hedge_ratio: arb.hedge_ratio,
+        entry_price_a: get_current_price(arb.asset),
+        entry_price_b: get_current_price(arb.pair_asset)
       })
     end
 

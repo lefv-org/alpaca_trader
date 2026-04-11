@@ -15,6 +15,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.BarsStore,
       AlpacaTrader.PairPositionStore,
       AlpacaTrader.Arbitrage.DiscoveryScanner,
+      AlpacaTrader.Arbitrage.PairBuilder,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]
@@ -36,6 +37,7 @@ defmodule AlpacaTrader.Application do
     Api.register_job(AssetSyncJob)
     Api.register_job(ArbitrageScanJob)
     Api.register_job(BarsSyncJob)
+    Api.register_job(AlpacaTrader.Scheduler.Jobs.PairBuildJob)
   end
 
   @impl true

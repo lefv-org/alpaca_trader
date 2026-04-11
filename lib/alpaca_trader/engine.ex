@@ -518,31 +518,61 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp discover_new_pairs do
-    try do
+    scanner_hits = try do
       case AlpacaTrader.Arbitrage.DiscoveryScanner.discover() do
         {signals, _count} when signals != [] ->
-          Enum.map(signals, fn sig ->
-            %ArbitragePosition{
-              result: true,
-              asset: sig.asset_a,
-              reason: "DISCOVERED: z=#{sig.z_score} (#{sig.asset_a}↔#{sig.asset_b})",
-              action: :enter,
-              tier: 2,
-              pair_asset: sig.asset_b,
-              direction: sig.direction,
-              hedge_ratio: sig.hedge_ratio,
-              z_score: sig.z_score,
-              spread: sig.z_score,
-              timestamp: DateTime.utc_now()
-            }
-          end)
-
-        _ ->
-          []
+          Enum.map(signals, &signal_to_arb/1)
+        _ -> []
       end
     catch
       :exit, _ -> []
     end
+
+    # Also check dynamically built pairs from PairBuilder
+    dynamic_hits = try do
+      AlpacaTrader.Arbitrage.PairBuilder.dynamic_pairs()
+      |> Enum.filter(fn p ->
+        p.z_score != nil and abs(p.z_score) > 2.0 and
+          PairPositionStore.find_open_for_asset(p.asset_a) == nil
+      end)
+      |> Enum.map(fn p ->
+        direction = if p.z_score > 0, do: :long_b_short_a, else: :long_a_short_b
+
+        %ArbitragePosition{
+          result: true,
+          asset: p.asset_a,
+          reason: "DYNAMIC PAIR: r=#{p.correlation} z=#{p.z_score} (#{p.asset_a}↔#{p.asset_b})",
+          action: :enter,
+          tier: 2,
+          pair_asset: p.asset_b,
+          direction: direction,
+          hedge_ratio: nil,
+          z_score: p.z_score,
+          spread: p.z_score,
+          timestamp: DateTime.utc_now()
+        }
+      end)
+    catch
+      :exit, _ -> []
+    end
+
+    scanner_hits ++ dynamic_hits
+  end
+
+  defp signal_to_arb(sig) do
+    %ArbitragePosition{
+      result: true,
+      asset: sig.asset_a,
+      reason: "DISCOVERED: z=#{sig.z_score} (#{sig.asset_a}↔#{sig.asset_b})",
+      action: :enter,
+      tier: 2,
+      pair_asset: sig.asset_b,
+      direction: sig.direction,
+      hedge_ratio: sig.hedge_ratio,
+      z_score: sig.z_score,
+      spread: sig.z_score,
+      timestamp: DateTime.utc_now()
+    }
   end
 
   defp build_leg_context(%MarketContext{} = ctx, symbol) do

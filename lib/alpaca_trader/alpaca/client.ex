@@ -84,4 +84,26 @@ defmodule AlpacaTrader.Alpaca.Client do
   def get_clock, do: get("/v2/clock")
   def get_calendar(params \\ %{}), do: get("/v2/calendar", params)
   def get_corporate_actions(params \\ %{}), do: get("/v2/corporate_actions/announcements", params)
+
+  # --- Market Data (data.alpaca.markets) ---
+
+  defp data_client do
+    opts = [
+      base_url: Application.get_env(:alpaca_trader, :alpaca_data_url, "https://data.alpaca.markets"),
+      headers: [
+        {"APCA-API-KEY-ID", Application.fetch_env!(:alpaca_trader, :alpaca_key_id)},
+        {"APCA-API-SECRET-KEY", Application.fetch_env!(:alpaca_trader, :alpaca_secret_key)}
+      ]
+    ]
+
+    case Application.get_env(:alpaca_trader, :req_plug) do
+      nil -> Req.new(opts)
+      plug -> Req.new(Keyword.put(opts, :plug, plug))
+    end
+  end
+
+  def get_crypto_snapshots(symbols) when is_list(symbols) do
+    joined = Enum.join(symbols, ",")
+    data_client() |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined]) |> handle()
+  end
 end

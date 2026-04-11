@@ -645,15 +645,46 @@
       <div class="bg-gray-900 rounded p-4 border border-gray-800">
         <div class="font-bold mb-2">Execute Trade</div>
         <p class="text-gray-400 text-xs mb-3">
-          Gathers account, positions, clock, and asset data into a MarketContext,
-          passes it to <code class="text-green-400">execute_trade/1</code>, and returns the PurchaseContext.
+          Validates market state, then executes a buy/sell order via
+          <code class="text-green-400">execute_trade/2</code>. Returns hold if market closed or asset untradable.
         </p>
-        <form phx-submit="call" class="flex gap-2 items-end">
+        <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
           <input type="hidden" name="action" value="execute_trade" />
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol</div>
             <input type="text" name="symbol" placeholder="AAPL" required
               class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">side</div>
+            <select name="side" required class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="buy">buy</option>
+              <option value="sell">sell</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">qty</div>
+            <input type="text" name="qty" placeholder="1" required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">type</div>
+            <select name="type" class="bg-gray-800 rounded px-2 py-1 text-xs">
+              <option value="market">market</option>
+              <option value="limit">limit</option>
+              <option value="stop">stop</option>
+              <option value="stop_limit">stop_limit</option>
+            </select>
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">limit $</div>
+            <input type="text" name="limit_price" placeholder="—"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+          </div>
+          <div>
+            <div class="text-gray-400 text-xs mb-1">stop $</div>
+            <input type="text" name="stop_price" placeholder="—"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
           </div>
           <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
             Execute
@@ -679,6 +710,32 @@
             Check
           </button>
         </form>
+      </div>
+
+      <%!-- Arbitrage Full Scan --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">Arbitrage Pipeline</div>
+        <p class="text-gray-400 text-xs mb-3">
+          Scans every asset in the AssetStore via
+          <code class="text-green-400">is_in_arbitrage_position/2</code>.
+          "Scan" is a dry run. "Scan & Execute" will auto-trade any hits via
+          <code class="text-green-400">execute_trade/2</code>.
+          The cron job runs Scan & Execute every minute.
+        </p>
+        <div class="flex gap-2">
+          <form phx-submit="call">
+            <input type="hidden" name="action" value="scan_arbitrage" />
+            <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+              Scan (dry run)
+            </button>
+          </form>
+          <form phx-submit="call">
+            <input type="hidden" name="action" value="scan_and_execute" />
+            <button type="submit" class="px-3 py-1 bg-yellow-700 rounded hover:bg-yellow-600 text-xs">
+              Scan & Execute
+            </button>
+          </form>
+        </div>
       </div>
 
       <%!-- Side-by-side input/output display --%>

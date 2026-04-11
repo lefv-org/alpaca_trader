@@ -122,7 +122,7 @@ defmodule AlpacaTraderWeb.TradingLive do
   defp dispatch("get_calendar", p), do: Client.get_calendar(p)
   defp dispatch("get_corporate_actions", p), do: Client.get_corporate_actions(p)
 
-  defp dispatch("execute_trade", %{"symbol" => symbol}) do
+  defp dispatch("execute_trade", %{"symbol" => symbol} = params) do
     alias AlpacaTrader.Engine
     alias AlpacaTrader.Engine.MarketContext
 
@@ -144,7 +144,8 @@ defmodule AlpacaTraderWeb.TradingLive do
         orders: orders
       }
 
-      {:ok, output} = Engine.execute_trade(ctx)
+      order_params = Map.drop(params, ["symbol", "action"])
+      {:ok, output} = Engine.execute_trade(ctx, order_params)
       {:ok, %{input: ctx, output: output}}
     end
   end
@@ -173,7 +174,63 @@ defmodule AlpacaTraderWeb.TradingLive do
     end
   end
 
+  defp dispatch("scan_arbitrage", _) do
+    with {:ok, ctx} <- build_scan_context() do
+      {:ok, output} = AlpacaTrader.Engine.scan_arbitrage(ctx)
+      {:ok, %{input: ctx, output: output}}
+    end
+  end
+
+  defp dispatch("scan_and_execute", _) do
+    with {:ok, ctx} <- build_scan_context() do
+      {:ok, output} = AlpacaTrader.Engine.scan_and_execute(ctx)
+      {:ok, %{input: ctx, output: output}}
+    end
+  end
+
   defp dispatch(unknown, _), do: {:error, "Unknown action: #{unknown}"}
+
+  defp build_scan_context do
+    alias AlpacaTrader.Engine.MarketContext
+
+    crypto_symbols =
+      AlpacaTrader.AssetStore.all()
+      |> Enum.filter(fn a -> a["class"] == "crypto" end)
+      |> Enum.map(fn a -> a["symbol"] end)
+
+    with {:ok, account} <- Client.get_account(),
+         {:ok, clock} <- Client.get_clock(),
+         {:ok, positions} <- Client.list_positions(),
+         {:ok, orders} <- Client.list_orders(%{status: "all", limit: 50}),
+         {:ok, snapshots} <- fetch_crypto_quotes(crypto_symbols) do
+      {:ok,
+       %MarketContext{
+         symbol: nil,
+         account: account,
+         position: nil,
+         clock: clock,
+         asset: nil,
+         bars: nil,
+         positions: positions,
+         orders: orders,
+         quotes: snapshots
+       }}
+    end
+  end
+
+  defp fetch_crypto_quotes([]), do: {:ok, %{}}
+
+  defp fetch_crypto_quotes(symbols) do
+    symbols
+    |> Enum.chunk_every(50)
+    |> Enum.reduce_while({:ok, %{}}, fn chunk, {:ok, acc} ->
+      case Client.get_crypto_snapshots(chunk) do
+        {:ok, %{"snapshots" => data}} -> {:cont, {:ok, Map.merge(acc, data)}}
+        {:ok, data} when is_map(data) -> {:cont, {:ok, Map.merge(acc, data)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   defp split_symbols(nil), do: []
   defp split_symbols(""), do: []

@@ -27,8 +27,10 @@ defmodule AlpacaTrader.Application do
   defp register_jobs do
     alias AlpacaTrader.Scheduler.Api
     alias AlpacaTrader.Scheduler.Jobs.AssetSyncJob
+    alias AlpacaTrader.Scheduler.Jobs.ArbitrageScanJob
 
     Api.register_job(AssetSyncJob)
+    Api.register_job(ArbitrageScanJob)
   end
 
   @impl true

@@ -20,41 +20,101 @@ defmodule AlpacaTrader.EngineTest do
     Map.merge(defaults, overrides)
   end
 
-  describe "execute_trade/1" do
-    test "returns {:ok, %PurchaseContext{}} with :hold action" do
-      ctx = build_context()
-      assert {:ok, %PurchaseContext{action: :hold}} = Engine.execute_trade(ctx)
+  describe "execute_trade/2" do
+    test "holds when market is closed for equities" do
+      ctx = build_context(%{clock: %{"is_open" => false}})
+      params = %{"side" => "buy", "qty" => "1"}
+
+      {:ok, result} = Engine.execute_trade(ctx, params)
+      assert result.action == :hold
+      assert result.reason == "market is closed"
     end
 
-    test "carries symbol from context to result" do
-      ctx = build_context(%{symbol: "MSFT"})
-      {:ok, result} = Engine.execute_trade(ctx)
-      assert result.symbol == "MSFT"
+    test "holds when asset is not tradable" do
+      ctx = build_context(%{asset: %{"tradable" => false, "class" => "us_equity"}})
+      params = %{"side" => "buy", "qty" => "1"}
+
+      {:ok, result} = Engine.execute_trade(ctx, params)
+      assert result.action == :hold
+      assert result.reason == "asset is not tradable"
     end
 
-    test "includes a reason" do
+    test "holds with invalid params" do
       ctx = build_context()
-      {:ok, result} = Engine.execute_trade(ctx)
-      assert is_binary(result.reason)
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "hold"})
+      assert result.action == :hold
+      assert result.reason =~ "invalid params"
     end
 
-    test "includes a timestamp" do
-      ctx = build_context()
-      {:ok, result} = Engine.execute_trade(ctx)
+    test "executes buy when market is open" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        assert conn.method == "POST"
+        assert conn.request_path == "/v2/orders"
+        Req.Test.json(conn, %{"id" => "o1", "symbol" => "AAPL", "status" => "accepted", "side" => "buy", "qty" => "1"})
+      end)
+
+      ctx = build_context(%{
+        clock: %{"is_open" => true},
+        asset: %{"tradable" => true, "class" => "us_equity"}
+      })
+
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "1"})
+      assert result.action == :bought
+      assert result.symbol == "AAPL"
+      assert result.qty == "1"
+      assert result.side == "buy"
+      assert result.order["id"] == "o1"
+    end
+
+    test "executes sell when market is open" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        Req.Test.json(conn, %{"id" => "o2", "symbol" => "AAPL", "status" => "accepted", "side" => "sell", "qty" => "5"})
+      end)
+
+      ctx = build_context(%{
+        clock: %{"is_open" => true},
+        asset: %{"tradable" => true, "class" => "us_equity"}
+      })
+
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "5"})
+      assert result.action == :sold
+      assert result.side == "sell"
+    end
+
+    test "allows crypto when market is closed" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        Req.Test.json(conn, %{"id" => "o3", "symbol" => "BTC/USD", "status" => "accepted"})
+      end)
+
+      ctx = build_context(%{
+        symbol: "BTC/USD",
+        clock: %{"is_open" => false},
+        asset: %{"tradable" => true, "class" => "crypto"}
+      })
+
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "0.001"})
+      assert result.action == :bought
+    end
+
+    test "holds when order is rejected by API" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        Plug.Conn.send_resp(conn, 422, Jason.encode!(%{"message" => "insufficient qty"}))
+      end)
+
+      ctx = build_context(%{
+        clock: %{"is_open" => true},
+        asset: %{"tradable" => true, "class" => "us_equity"}
+      })
+
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "1"})
+      assert result.action == :hold
+      assert result.reason =~ "order rejected"
+    end
+
+    test "includes timestamp" do
+      ctx = build_context(%{clock: %{"is_open" => false}})
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "1"})
       assert %DateTime{} = result.timestamp
-    end
-
-    test "returns nil qty and side for hold" do
-      ctx = build_context()
-      {:ok, result} = Engine.execute_trade(ctx)
-      assert result.qty == nil
-      assert result.side == nil
-    end
-
-    test "returns nil order for hold" do
-      ctx = build_context()
-      {:ok, result} = Engine.execute_trade(ctx)
-      assert result.order == nil
     end
   end
 
@@ -76,41 +136,116 @@ defmodule AlpacaTrader.EngineTest do
   end
 
   describe "is_in_arbitrage_position/2" do
-    test "returns {:ok, %ArbitragePosition{}} with result: false" do
-      ctx = build_context()
-      assert {:ok, %Engine.ArbitragePosition{result: false}} = Engine.is_in_arbitrage_position(ctx, "BTC")
+    test "returns false when no quotes available" do
+      ctx = build_context(%{quotes: nil})
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
+      assert result.result == false
+      assert result.reason =~ "no quote data"
+    end
+
+    test "returns false when prices are consistent (no arb)" do
+      quotes = %{
+        "BTC/USD" => %{"latestQuote" => %{"bp" => 60000.0, "ap" => 60010.0}},
+        "ETH/USD" => %{"latestQuote" => %{"bp" => 3000.0, "ap" => 3001.0}},
+        "ETH/BTC" => %{"latestQuote" => %{"bp" => 0.05, "ap" => 0.05001}}
+      }
+
+      ctx = build_context(%{quotes: quotes})
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
+      assert result.result == false
+    end
+
+    test "returns true when arbitrage cycle exists" do
+      # ETH/BTC mispriced at 0.04 (fair value ~0.05) = 20% discount
+      quotes = %{
+        "BTC/USD" => %{"latestQuote" => %{"bp" => 60000.0, "ap" => 60000.0}},
+        "ETH/USD" => %{"latestQuote" => %{"bp" => 3000.0, "ap" => 3000.0}},
+        "ETH/BTC" => %{"latestQuote" => %{"bp" => 0.04, "ap" => 0.04}}
+      }
+
+      ctx = build_context(%{quotes: quotes})
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
+      assert result.result == true
+      assert result.spread > 0
+      assert result.reason =~ "arbitrage cycle detected"
     end
 
     test "carries asset name to result" do
-      ctx = build_context()
+      ctx = build_context(%{quotes: %{}})
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "ETH")
       assert result.asset == "ETH"
     end
 
-    test "includes a reason and timestamp" do
-      ctx = build_context()
-      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
-      assert is_binary(result.reason)
-      assert %DateTime{} = result.timestamp
-    end
-
     test "finds related positions by asset name" do
       ctx = build_context(%{
+        quotes: %{},
         positions: [
-          %{"symbol" => "BTC/USD", "qty" => "0.5", "side" => "long"},
-          %{"symbol" => "AAPL", "qty" => "10", "side" => "long"},
-          %{"symbol" => "BTC/USDT", "qty" => "0.3", "side" => "short"}
+          %{"symbol" => "BTC/USD", "qty" => "0.5"},
+          %{"symbol" => "AAPL", "qty" => "10"},
+          %{"symbol" => "BTC/USDT", "qty" => "0.3"}
         ]
       })
 
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
       assert length(result.related_positions) == 2
     end
+  end
 
-    test "returns empty related_positions when no match" do
-      ctx = build_context(%{positions: [%{"symbol" => "AAPL", "qty" => "10"}]})
-      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
-      assert result.related_positions == []
+  describe "scan_arbitrage/1" do
+    setup do
+      # Populate AssetStore with test assets
+      AlpacaTrader.AssetStore.put_assets([
+        %{"symbol" => "AAPL", "class" => "us_equity", "tradable" => true},
+        %{"symbol" => "BTC/USD", "class" => "crypto", "tradable" => true},
+        %{"symbol" => "ETH/USD", "class" => "crypto", "tradable" => true}
+      ])
+
+      :ok
+    end
+
+    test "scans all assets from the store" do
+      ctx = build_context()
+      {:ok, result} = Engine.scan_arbitrage(ctx)
+
+      assert result.scanned == 3
+      assert result.hits == 0
+      assert result.opportunities == []
+      assert %DateTime{} = result.timestamp
+    end
+
+    test "returns ArbitrageScanResult struct with executed: 0 for dry run" do
+      ctx = build_context()
+      {:ok, result} = Engine.scan_arbitrage(ctx)
+      assert %Engine.ArbitrageScanResult{} = result
+      assert result.executed == 0
+      assert result.trades == []
+    end
+  end
+
+  describe "scan_and_execute/1" do
+    setup do
+      AlpacaTrader.AssetStore.put_assets([
+        %{"symbol" => "AAPL", "class" => "us_equity", "tradable" => true},
+        %{"symbol" => "BTC/USD", "class" => "crypto", "tradable" => true}
+      ])
+
+      :ok
+    end
+
+    test "scans and returns result with trade fields" do
+      ctx = build_context()
+      {:ok, result} = Engine.scan_and_execute(ctx)
+
+      assert result.scanned == 2
+      assert result.hits == 0
+      assert result.executed == 0
+      assert result.trades == []
+    end
+
+    test "returns ArbitrageScanResult struct" do
+      ctx = build_context()
+      {:ok, result} = Engine.scan_and_execute(ctx)
+      assert %Engine.ArbitrageScanResult{} = result
     end
   end
 end

@@ -112,9 +112,6 @@ defmodule AlpacaTrader.Engine do
 
   # ── EXIT CONDITIONS ────────────────────────────────────────
 
-  # Minimum profit to take (0.5% covers round-trip trading costs)
-  @profit_target_pct 0.5
-
   defp check_exit_conditions(ctx, pos, asset, related) do
     current = recompute_z_score(pos.asset_a, pos.asset_b)
 
@@ -123,25 +120,30 @@ defmodule AlpacaTrader.Engine do
     price_b = get_live_price(ctx, pos.asset_b)
     pnl = compute_pnl(pos, price_a, price_b)
 
+    # Tier-specific thresholds
+    params = AssetRelationships.params_for(asset)
+    profit_target = params.profit_target
+    cut_loss = params.stop_loss
+
     # Update tracking
     z = if current, do: current.z_score, else: pos.current_z_score
     PairPositionStore.tick(pos.id, z)
 
     cond do
       # 1. PROFIT TARGET: spread moved in our favor → SELL
-      pnl != nil and pnl.profit_pct >= @profit_target_pct ->
+      pnl != nil and pnl.profit_pct >= profit_target ->
         exit_signal(asset, related, pos,
-          "TAKE PROFIT: #{Float.round(pnl.profit_pct, 2)}% gain ($#{Float.round(pnl.dollar_pnl, 2)})")
+          "TAKE PROFIT: #{Float.round(pnl.profit_pct, 2)}% gain ($#{Float.round(pnl.dollar_pnl, 2)}) [target: #{profit_target}%]")
 
       # 2. STOP LOSS: z-score diverged further
       current != nil and abs(current.z_score) >= pos.stop_z_threshold ->
         exit_signal(asset, related, pos,
           "STOP LOSS: z=#{current.z_score} exceeded #{pos.stop_z_threshold}")
 
-      # 3. CUT LOSS: losing more than 2%
-      pnl != nil and pnl.profit_pct <= -2.0 ->
+      # 3. CUT LOSS: P&L below tier-specific threshold
+      pnl != nil and pnl.profit_pct <= cut_loss ->
         exit_signal(asset, related, pos,
-          "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)})")
+          "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)}) [limit: #{cut_loss}%]")
 
       # 4. TIME EXIT: held too long
       pos.bars_held >= pos.max_hold_bars ->

@@ -70,7 +70,7 @@ defmodule AlpacaTrader.Arbitrage.AssetRelationshipsTest do
     end
 
     test "returns empty list for symbol without complements" do
-      assert AssetRelationships.complements_for("NVDA") == []
+      assert AssetRelationships.complements_for("GOOGL") == []
     end
   end
 

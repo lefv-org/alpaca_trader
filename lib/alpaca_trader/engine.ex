@@ -431,14 +431,42 @@ defmodule AlpacaTrader.Engine do
         asset["class"] == "crypto" or asset["symbol"] in all_symbols
       end)
 
+    # Known asset scan (Tier 1/2/3 + exit checks)
     results =
       Enum.map(assets, fn asset ->
         {:ok, arb} = is_in_arbitrage_position(ctx, asset["symbol"])
         arb
       end)
 
-    hits = Enum.filter(results, & &1.result)
-    {length(results), hits}
+    # Discovery scan: rotate through new stocks each iteration
+    discovery_hits = discover_new_pairs()
+
+    all_hits = Enum.filter(results, & &1.result) ++ discovery_hits
+    {length(results) + length(discovery_hits), all_hits}
+  end
+
+  defp discover_new_pairs do
+    case AlpacaTrader.Arbitrage.DiscoveryScanner.discover() do
+      {signals, _count} when signals != [] ->
+        Enum.map(signals, fn sig ->
+          %ArbitragePosition{
+            result: true,
+            asset: sig.asset_a,
+            reason: "DISCOVERED: z=#{sig.z_score} (#{sig.asset_a}↔#{sig.asset_b})",
+            action: :enter,
+            tier: 2,
+            pair_asset: sig.asset_b,
+            direction: sig.direction,
+            hedge_ratio: sig.hedge_ratio,
+            z_score: sig.z_score,
+            spread: sig.z_score,
+            timestamp: DateTime.utc_now()
+          }
+        end)
+
+      _ ->
+        []
+    end
   end
 
   defp build_leg_context(%MarketContext{} = ctx, symbol) do

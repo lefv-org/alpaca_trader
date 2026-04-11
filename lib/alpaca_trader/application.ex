@@ -14,6 +14,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.AssetStore,
       AlpacaTrader.BarsStore,
       AlpacaTrader.PairPositionStore,
+      AlpacaTrader.Arbitrage.DiscoveryScanner,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]

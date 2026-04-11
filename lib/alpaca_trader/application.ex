@@ -12,6 +12,7 @@ defmodule AlpacaTrader.Application do
       {DNSCluster, query: Application.get_env(:alpaca_trader, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: AlpacaTrader.PubSub},
       AlpacaTrader.AssetStore,
+      AlpacaTrader.BarsStore,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]
@@ -28,9 +29,11 @@ defmodule AlpacaTrader.Application do
     alias AlpacaTrader.Scheduler.Api
     alias AlpacaTrader.Scheduler.Jobs.AssetSyncJob
     alias AlpacaTrader.Scheduler.Jobs.ArbitrageScanJob
+    alias AlpacaTrader.Scheduler.Jobs.BarsSyncJob
 
     Api.register_job(AssetSyncJob)
     Api.register_job(ArbitrageScanJob)
+    Api.register_job(BarsSyncJob)
   end
 
   @impl true

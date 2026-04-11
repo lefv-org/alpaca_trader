@@ -3,9 +3,11 @@ defmodule AlpacaTrader.Engine do
   Single entry point for all trade decisions.
   """
 
+  alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships}
+
   defmodule MarketContext do
     @moduledoc """
-    Raw market data fed into execute_trade/1.
+    Raw market data fed into execute_trade/2.
     """
     @derive Jason.Encoder
     defstruct [
@@ -23,7 +25,7 @@ defmodule AlpacaTrader.Engine do
 
   defmodule PurchaseContext do
     @moduledoc """
-    Result of execute_trade/1 — wraps the buy/sell/hold recommendation.
+    Result of execute_trade/2 — wraps trade confirmation.
     """
     @derive Jason.Encoder
     defstruct [
@@ -36,6 +38,44 @@ defmodule AlpacaTrader.Engine do
       :timestamp
     ]
   end
+
+  defmodule ArbitragePosition do
+    @moduledoc """
+    Result of is_in_arbitrage_position/2 — describes whether an arbitrage
+    opportunity exists for a given asset, across all detection tiers.
+    """
+    @derive Jason.Encoder
+    defstruct [
+      :result,
+      :asset,
+      :reason,
+      :related_positions,
+      :spread,
+      :timestamp,
+      :tier,
+      :pair_asset,
+      :direction,
+      :hedge_ratio,
+      :z_score
+    ]
+  end
+
+  defmodule ArbitrageScanResult do
+    @moduledoc """
+    Result of scan_arbitrage/1 or scan_and_execute/1.
+    """
+    @derive Jason.Encoder
+    defstruct [
+      :scanned,
+      :hits,
+      :opportunities,
+      :executed,
+      :trades,
+      :timestamp
+    ]
+  end
+
+  # ── execute_trade ──────────────────────────────────────────
 
   @doc """
   The single point in the app where buy/sell trades are executed.
@@ -113,95 +153,129 @@ defmodule AlpacaTrader.Engine do
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, val), do: Map.put(map, key, val)
 
-  defmodule ArbitragePosition do
-    @moduledoc """
-    Result of is_in_arbitrage_position/2 — describes whether an arbitrage
-    opportunity or position exists for a given asset.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :result,
-      :asset,
-      :reason,
-      :related_positions,
-      :spread,
-      :timestamp
-    ]
-  end
+  # ── is_in_arbitrage_position (3-tier cascade) ─────────────
 
   @doc """
-  Checks whether the given asset has an arbitrage opportunity.
+  The sole decision point for whether to trade.
 
-  Uses Bellman-Ford negative-cycle detection on the crypto price graph
-  from ctx.quotes. Returns result: true if the asset's base currency
-  appears in a profitable cycle.
+  Cascades through three detection tiers:
+    Tier 1: Direct arbitrage (Bellman-Ford crypto cycles)
+    Tier 2: Substitute pair arbitrage (z-score on cointegrated spread)
+    Tier 3: Complement pair arbitrage (z-score, higher threshold)
   """
   def is_in_arbitrage_position(%MarketContext{} = ctx, asset) do
     related =
       (ctx.positions || [])
       |> Enum.filter(fn p -> String.contains?(p["symbol"], asset) end)
 
-    # Extract the base currency (e.g., "BTC/USD" → "BTC", "AAPL" → "AAPL")
+    case try_tier_1(ctx, asset) do
+      {:hit, arb} ->
+        {:ok, %ArbitragePosition{arb | related_positions: related}}
+
+      :miss ->
+        case try_tier_2(asset) do
+          {:hit, arb} ->
+            {:ok, %ArbitragePosition{arb | related_positions: related}}
+
+          :miss ->
+            case try_tier_3(asset) do
+              {:hit, arb} ->
+                {:ok, %ArbitragePosition{arb | related_positions: related}}
+
+              :miss ->
+                {:ok,
+                 %ArbitragePosition{
+                   result: false,
+                   asset: asset,
+                   reason: "no opportunity across all tiers",
+                   related_positions: related,
+                   tier: nil,
+                   timestamp: DateTime.utc_now()
+                 }}
+            end
+        end
+    end
+  end
+
+  # Tier 1: Bellman-Ford crypto cycle detection
+  defp try_tier_1(ctx, asset) do
     currency = asset |> String.split("/") |> hd()
 
     case ctx.quotes do
       quotes when is_map(quotes) and map_size(quotes) > 0 ->
-        cycles = AlpacaTrader.Arbitrage.BellmanFord.detect_cycles(quotes)
+        cycles = BellmanFord.detect_cycles(quotes)
 
-        case AlpacaTrader.Arbitrage.BellmanFord.currency_in_cycles?(currency, cycles) do
+        case BellmanFord.currency_in_cycles?(currency, cycles) do
           %{cycle: cycle, profit_pct: profit} ->
-            {:ok,
+            {:hit,
              %ArbitragePosition{
                result: true,
                asset: asset,
-               reason: "arbitrage cycle detected: #{Enum.join(cycle, " → ")} (#{profit}%)",
-               related_positions: related,
+               reason: "cycle: #{Enum.join(cycle, " → ")} (#{profit}%)",
                spread: profit,
+               tier: 1,
                timestamp: DateTime.utc_now()
              }}
 
           nil ->
-            {:ok,
-             %ArbitragePosition{
-               result: false,
-               asset: asset,
-               reason: "no profitable cycle includes #{currency}",
-               related_positions: related,
-               spread: nil,
-               timestamp: DateTime.utc_now()
-             }}
+            :miss
         end
 
       _ ->
-        {:ok,
-         %ArbitragePosition{
-           result: false,
-           asset: asset,
-           reason: "no quote data available",
-           related_positions: related,
-           spread: nil,
-           timestamp: DateTime.utc_now()
-         }}
+        :miss
     end
   end
 
-  defmodule ArbitrageScanResult do
-    @moduledoc """
-    Result of scan_arbitrage/1 or scan_and_execute/1.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :scanned,
-      :hits,
-      :opportunities,
-      :executed,
-      :trades,
-      :timestamp
-    ]
+  # Tier 2: Substitute pair z-score
+  defp try_tier_2(asset) do
+    case SubstituteDetector.detect(asset) do
+      {:ok, %{z_score: z, hedge_ratio: ratio, asset_b: pair, direction: dir}} ->
+        {:hit,
+         %ArbitragePosition{
+           result: true,
+           asset: asset,
+           reason: "substitute spread z=#{z} (#{asset}↔#{pair})",
+           spread: z,
+           tier: 2,
+           pair_asset: pair,
+           direction: dir,
+           hedge_ratio: ratio,
+           z_score: z,
+           timestamp: DateTime.utc_now()
+         }}
+
+      {:ok, nil} ->
+        :miss
+    end
   end
 
+  # Tier 3: Complement pair z-score
+  defp try_tier_3(asset) do
+    case ComplementDetector.detect(asset) do
+      {:ok, %{z_score: z, hedge_ratio: ratio, asset_b: pair, direction: dir}} ->
+        {:hit,
+         %ArbitragePosition{
+           result: true,
+           asset: asset,
+           reason: "complement spread z=#{z} (#{asset}↔#{pair})",
+           spread: z,
+           tier: 3,
+           pair_asset: pair,
+           direction: dir,
+           hedge_ratio: ratio,
+           z_score: z,
+           timestamp: DateTime.utc_now()
+         }}
+
+      {:ok, nil} ->
+        :miss
+    end
+  end
+
+  # ── scan_arbitrage / scan_and_execute ──────────────────────
+
   @doc """
-  Scans all tradeable assets for arbitrage opportunities (dry run — no trades).
+  Scans assets for arbitrage opportunities (dry run — no trades).
   """
   def scan_arbitrage(%MarketContext{} = ctx) do
     {scanned, hits} = do_scan(ctx)
@@ -218,35 +292,16 @@ defmodule AlpacaTrader.Engine do
   end
 
   @doc """
-  Full pipeline: scan all assets → detect arbitrage → execute trades.
-
-  For each asset in the AssetStore:
-    1. is_in_arbitrage_position/2
-    2. If result: true → execute_trade/2
-    3. Collect all results
-
-  This is the function called by the ArbitrageScanJob cron.
+  Full pipeline: scan → detect → execute.
+  Called by the ArbitrageScanJob cron every minute.
   """
   def scan_and_execute(%MarketContext{} = ctx) do
     {scanned, hits} = do_scan(ctx)
 
     trades =
-      Enum.map(hits, fn arb ->
-        asset_data = AlpacaTrader.AssetStore.get(arb.asset)
-
-        trade_ctx = %MarketContext{
-          ctx
-          | symbol: arb.asset,
-            asset: case asset_data do
-              {:ok, a} -> a
-              :error -> %{"tradable" => true, "class" => "us_equity"}
-            end,
-            position: Enum.find(ctx.positions || [], fn p -> p["symbol"] == arb.asset end)
-        }
-
+      Enum.flat_map(hits, fn arb ->
         order_params = build_order_params(arb)
-        {:ok, purchase} = execute_trade(trade_ctx, order_params)
-        purchase
+        execute_arb_trade(ctx, arb, order_params)
       end)
 
     executed = Enum.count(trades, &(&1.action in [:bought, :sold]))
@@ -262,8 +317,15 @@ defmodule AlpacaTrader.Engine do
      }}
   end
 
+  # Only scan assets that matter: crypto (Tier 1) + relationship-connected (Tier 2/3)
   defp do_scan(ctx) do
-    assets = AlpacaTrader.AssetStore.all()
+    relationship_symbols = AssetRelationships.all_symbols() |> MapSet.new()
+
+    assets =
+      AlpacaTrader.AssetStore.all()
+      |> Enum.filter(fn asset ->
+        asset["class"] == "crypto" or asset["symbol"] in relationship_symbols
+      end)
 
     results =
       Enum.map(assets, fn asset ->
@@ -275,13 +337,64 @@ defmodule AlpacaTrader.Engine do
     {length(results), hits}
   end
 
-  defp build_order_params(%ArbitragePosition{} = arb) do
-    # Determine trade direction from the arbitrage signal.
-    # Strategy logic goes here — for now, defaults to buy.
+  # Execute a single-leg or pair trade based on tier
+  defp execute_arb_trade(ctx, _arb, %{pair: true, legs: legs}) do
+    Enum.map(legs, fn leg ->
+      leg_ctx = build_leg_context(ctx, leg["symbol"])
+      {:ok, purchase} = execute_trade(leg_ctx, leg)
+      purchase
+    end)
+  end
+
+  defp execute_arb_trade(ctx, arb, params) do
+    trade_ctx = build_leg_context(ctx, arb.asset)
+    {:ok, purchase} = execute_trade(trade_ctx, params)
+    [purchase]
+  end
+
+  defp build_leg_context(%MarketContext{} = ctx, symbol) do
+    asset_data =
+      case AlpacaTrader.AssetStore.get(symbol) do
+        {:ok, a} -> a
+        :error -> %{"tradable" => true, "class" => "us_equity"}
+      end
+
+    %MarketContext{
+      ctx
+      | symbol: symbol,
+        asset: asset_data,
+        position: Enum.find(ctx.positions || [], fn p -> p["symbol"] == symbol end)
+    }
+  end
+
+  # Tier 1: single-leg directional trade
+  defp build_order_params(%ArbitragePosition{tier: 1} = arb) do
     %{
-      "side" => arb.spread && arb.spread < 0 && "sell" || "buy",
+      "side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
       "qty" => "1",
       "type" => "market"
     }
+  end
+
+  # Tier 2/3: pair trade — long one side, short the other
+  defp build_order_params(%ArbitragePosition{tier: tier} = arb)
+       when tier in [2, 3] do
+    {long_symbol, short_symbol} =
+      case arb.direction do
+        :long_a_short_b -> {arb.asset, arb.pair_asset}
+        :long_b_short_a -> {arb.pair_asset, arb.asset}
+      end
+
+    %{
+      pair: true,
+      legs: [
+        %{"symbol" => long_symbol, "side" => "buy", "qty" => "1", "type" => "market"},
+        %{"symbol" => short_symbol, "side" => "sell", "qty" => "1", "type" => "market"}
+      ]
+    }
+  end
+
+  defp build_order_params(_arb) do
+    %{"side" => "buy", "qty" => "1", "type" => "market"}
   end
 end

@@ -136,14 +136,14 @@ defmodule AlpacaTrader.EngineTest do
   end
 
   describe "is_in_arbitrage_position/2" do
-    test "returns false when no quotes available" do
+    test "returns false when no opportunities across all tiers" do
       ctx = build_context(%{quotes: nil})
-      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "UNKNOWN")
       assert result.result == false
-      assert result.reason =~ "no quote data"
+      assert result.reason =~ "no opportunity"
     end
 
-    test "returns false when prices are consistent (no arb)" do
+    test "returns false when crypto prices are consistent (no cycle)" do
       quotes = %{
         "BTC/USD" => %{"latestQuote" => %{"bp" => 60000.0, "ap" => 60010.0}},
         "ETH/USD" => %{"latestQuote" => %{"bp" => 3000.0, "ap" => 3001.0}},
@@ -155,8 +155,7 @@ defmodule AlpacaTrader.EngineTest do
       assert result.result == false
     end
 
-    test "returns true when arbitrage cycle exists" do
-      # ETH/BTC mispriced at 0.04 (fair value ~0.05) = 20% discount
+    test "Tier 1: detects Bellman-Ford cycle" do
       quotes = %{
         "BTC/USD" => %{"latestQuote" => %{"bp" => 60000.0, "ap" => 60000.0}},
         "ETH/USD" => %{"latestQuote" => %{"bp" => 3000.0, "ap" => 3000.0}},
@@ -166,8 +165,9 @@ defmodule AlpacaTrader.EngineTest do
       ctx = build_context(%{quotes: quotes})
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
       assert result.result == true
+      assert result.tier == 1
       assert result.spread > 0
-      assert result.reason =~ "arbitrage cycle detected"
+      assert result.reason =~ "cycle"
     end
 
     test "carries asset name to result" do

@@ -106,4 +106,18 @@ defmodule AlpacaTrader.Alpaca.Client do
     joined = Enum.join(symbols, ",")
     data_client() |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined]) |> handle()
   end
+
+  def get_stock_bars(symbols, params \\ %{}) when is_list(symbols) do
+    joined = Enum.join(symbols, ",")
+    defaults = %{timeframe: "1Day", limit: 60}
+    merged = Map.merge(defaults, params) |> Map.put(:symbols, joined)
+    data_client() |> Req.get(url: "/v2/stocks/bars", params: Map.to_list(merged)) |> handle()
+  end
+
+  def get_crypto_bars(symbols, params \\ %{}) when is_list(symbols) do
+    joined = Enum.join(symbols, ",")
+    defaults = %{timeframe: "1Day", limit: 60}
+    merged = Map.merge(defaults, params) |> Map.put(:symbols, joined)
+    data_client() |> Req.get(url: "/v1beta3/crypto/us/bars", params: Map.to_list(merged)) |> handle()
+  end
 end

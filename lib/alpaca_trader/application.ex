@@ -13,6 +13,7 @@ defmodule AlpacaTrader.Application do
       {Phoenix.PubSub, name: AlpacaTrader.PubSub},
       AlpacaTrader.AssetStore,
       AlpacaTrader.BarsStore,
+      AlpacaTrader.PairPositionStore,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]

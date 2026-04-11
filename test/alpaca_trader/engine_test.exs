@@ -136,10 +136,16 @@ defmodule AlpacaTrader.EngineTest do
   end
 
   describe "is_in_arbitrage_position/2" do
+    setup do
+      AlpacaTrader.PairPositionStore.clear()
+      :ok
+    end
+
     test "returns false when no opportunities across all tiers" do
       ctx = build_context(%{quotes: nil})
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "UNKNOWN")
       assert result.result == false
+      assert result.action == :hold
       assert result.reason =~ "no opportunity"
     end
 
@@ -155,7 +161,7 @@ defmodule AlpacaTrader.EngineTest do
       assert result.result == false
     end
 
-    test "Tier 1: detects Bellman-Ford cycle" do
+    test "Tier 1: detects Bellman-Ford cycle with action :enter" do
       quotes = %{
         "BTC/USD" => %{"latestQuote" => %{"bp" => 60000.0, "ap" => 60000.0}},
         "ETH/USD" => %{"latestQuote" => %{"bp" => 3000.0, "ap" => 3000.0}},
@@ -166,8 +172,8 @@ defmodule AlpacaTrader.EngineTest do
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
       assert result.result == true
       assert result.tier == 1
+      assert result.action == :enter
       assert result.spread > 0
-      assert result.reason =~ "cycle"
     end
 
     test "carries asset name to result" do
@@ -189,11 +195,75 @@ defmodule AlpacaTrader.EngineTest do
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
       assert length(result.related_positions) == 2
     end
+
+    test "TAKE PROFIT: exits when z-score reverts below threshold" do
+      # Simulate an open position with z-score that has reverted
+      AlpacaTrader.BarsStore.put_all_bars(%{
+        "AAPL" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 0.1} end),
+        "MSFT" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 300.0 + i * 0.2} end)
+      })
+
+      AlpacaTrader.PairPositionStore.open_position(%{
+        asset_a: "AAPL", asset_b: "MSFT", direction: :long_a_short_b,
+        tier: 2, z_score: 2.5, hedge_ratio: 0.5
+      })
+
+      ctx = build_context(%{quotes: %{}})
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "AAPL")
+      # Z-score of correlated series with no divergence should be near 0 → TAKE PROFIT
+      assert result.result == true
+      assert result.action == :exit
+      assert result.reason =~ "TAKE PROFIT"
+    end
+
+    test "TIME EXIT: exits after max bars held" do
+      AlpacaTrader.BarsStore.put_all_bars(%{
+        "NVDA" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 800.0 + i * 1.0} end),
+        "AMD" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 0.2} end)
+      })
+
+      {:ok, pos} = AlpacaTrader.PairPositionStore.open_position(%{
+        asset_a: "NVDA", asset_b: "AMD", direction: :long_a_short_b,
+        tier: 2, z_score: 2.5, hedge_ratio: 0.3
+      })
+
+      # Simulate 20 ticks (max_hold_bars for tier 2)
+      for _ <- 1..20, do: AlpacaTrader.PairPositionStore.tick(pos.id, 1.5)
+
+      ctx = build_context(%{quotes: %{}})
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "NVDA")
+      assert result.result == true
+      assert result.action == :exit
+      assert result.reason =~ "TIME EXIT"
+    end
+
+    test "HOLD: keeps position when z-score is between thresholds" do
+      # Noisy correlated pair → z ≈ 1.12, between exit_z=0.5 and stop_z=4.0
+      bars_a = Enum.map(1..60, fn i ->
+        %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 1.0 + :math.sin(i / 3.0) * 2.0}
+      end)
+      bars_b = Enum.map(1..60, fn i ->
+        %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 300.0 + i * 2.0 + :math.cos(i / 3.0) * 3.0}
+      end)
+
+      AlpacaTrader.BarsStore.put_all_bars(%{"AAPL" => bars_a, "MSFT" => bars_b})
+
+      AlpacaTrader.PairPositionStore.open_position(%{
+        asset_a: "AAPL", asset_b: "MSFT", direction: :long_a_short_b,
+        tier: 2, z_score: 2.5, hedge_ratio: 0.5
+      })
+
+      ctx = build_context(%{quotes: %{}})
+      {:ok, result} = Engine.is_in_arbitrage_position(ctx, "AAPL")
+      assert result.action == :hold
+      assert result.reason =~ "HOLD"
+    end
   end
 
   describe "scan_arbitrage/1" do
     setup do
-      # Populate AssetStore with test assets
+      AlpacaTrader.PairPositionStore.clear()
+
       AlpacaTrader.AssetStore.put_assets([
         %{"symbol" => "AAPL", "class" => "us_equity", "tradable" => true},
         %{"symbol" => "BTC/USD", "class" => "crypto", "tradable" => true},
@@ -224,6 +294,8 @@ defmodule AlpacaTrader.EngineTest do
 
   describe "scan_and_execute/1" do
     setup do
+      AlpacaTrader.PairPositionStore.clear()
+
       AlpacaTrader.AssetStore.put_assets([
         %{"symbol" => "AAPL", "class" => "us_equity", "tradable" => true},
         %{"symbol" => "BTC/USD", "class" => "crypto", "tradable" => true}

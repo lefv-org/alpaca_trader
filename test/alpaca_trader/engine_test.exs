@@ -263,12 +263,18 @@ defmodule AlpacaTrader.EngineTest do
   describe "scan_arbitrage/1" do
     setup do
       AlpacaTrader.PairPositionStore.clear()
+      AlpacaTrader.Arbitrage.DiscoveryScanner.reset()
 
       AlpacaTrader.AssetStore.put_assets([
         %{"symbol" => "AAPL", "class" => "us_equity", "tradable" => true},
         %{"symbol" => "BTC/USD", "class" => "crypto", "tradable" => true},
         %{"symbol" => "ETH/USD", "class" => "crypto", "tradable" => true}
       ])
+
+      # Stub client for discovery scanner bar fetches
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        Req.Test.json(conn, %{"bars" => %{}})
+      end)
 
       :ok
     end
@@ -295,11 +301,16 @@ defmodule AlpacaTrader.EngineTest do
   describe "scan_and_execute/1" do
     setup do
       AlpacaTrader.PairPositionStore.clear()
+      AlpacaTrader.Arbitrage.DiscoveryScanner.reset()
 
       AlpacaTrader.AssetStore.put_assets([
         %{"symbol" => "AAPL", "class" => "us_equity", "tradable" => true},
         %{"symbol" => "BTC/USD", "class" => "crypto", "tradable" => true}
       ])
+
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        Req.Test.json(conn, %{"bars" => %{}})
+      end)
 
       :ok
     end

@@ -69,7 +69,7 @@ for i <- 1..iterations do
 
   ctx = %MarketContext{
     symbol: nil, account: account, position: nil, clock: clock,
-    asset: nil, bars: nil, positions: positions, orders: orders, quotes: snapshots
+    asset: nil, bars: nil, positions: positions, orders: orders, quotes: snapshots, prices: snapshots
   }
 
   discovery_count = AlpacaTrader.Arbitrage.DiscoveryScanner.scanned_count()
@@ -127,12 +127,19 @@ for i <- 1..iterations do
           log.("  → WOULD ENTER: #{opp.asset}" <> if(opp.pair_asset, do: " ↔ #{opp.pair_asset}", else: ""))
           # Actually track the position so exit logic works in subsequent scans
           if opp.tier in [2, 3] and opp.pair_asset do
+            # Record entry prices from live data
+            price_a = get_in(snapshots, [opp.asset, "latestTrade", "p"]) ||
+                      (case BarsStore.get_closes(opp.asset) do {:ok, c} when c != [] -> List.last(c); _ -> nil end)
+            price_b = get_in(snapshots, [opp.pair_asset, "latestTrade", "p"]) ||
+                      (case BarsStore.get_closes(opp.pair_asset) do {:ok, c} when c != [] -> List.last(c); _ -> nil end)
+
             PairPositionStore.open_position(%{
               asset_a: opp.asset, asset_b: opp.pair_asset,
               direction: opp.direction, tier: opp.tier,
-              z_score: opp.z_score, hedge_ratio: opp.hedge_ratio
+              z_score: opp.z_score, hedge_ratio: opp.hedge_ratio,
+              entry_price_a: price_a, entry_price_b: price_b
             })
-            log.("  → POSITION OPENED: #{opp.asset}↔#{opp.pair_asset}")
+            log.("  → POSITION OPENED: #{opp.asset}↔#{opp.pair_asset} (entry: #{price_a || "?"} / #{price_b || "?"})")
           end
         :exit ->
           log.("  → WOULD EXIT: #{opp.asset}" <> if(opp.pair_asset, do: " ↔ #{opp.pair_asset}", else: ""))

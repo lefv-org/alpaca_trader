@@ -103,7 +103,7 @@ defmodule AlpacaTrader.Engine do
 
     case existing do
       %PairPositionStore.PairPosition{} = pos ->
-        check_exit_conditions(pos, asset, related)
+        check_exit_conditions(ctx, pos, asset, related)
 
       nil ->
         check_entry_conditions(ctx, asset, related)
@@ -115,12 +115,12 @@ defmodule AlpacaTrader.Engine do
   # Minimum profit to take (0.5% covers round-trip trading costs)
   @profit_target_pct 0.5
 
-  defp check_exit_conditions(pos, asset, related) do
+  defp check_exit_conditions(ctx, pos, asset, related) do
     current = recompute_z_score(pos.asset_a, pos.asset_b)
 
-    # Get current prices for P&L calculation
-    price_a = get_current_price(pos.asset_a)
-    price_b = get_current_price(pos.asset_b)
+    # Get current prices for P&L — live quotes first, then bars fallback
+    price_a = get_live_price(ctx, pos.asset_a)
+    price_b = get_live_price(ctx, pos.asset_b)
     pnl = compute_pnl(pos, price_a, price_b)
 
     # Update tracking
@@ -199,7 +199,25 @@ defmodule AlpacaTrader.Engine do
     end
   end
 
-  defp get_current_price(symbol) do
+  # Live price: check snapshot quotes first (real-time), then bars (daily)
+  defp get_live_price(%MarketContext{quotes: quotes}, symbol) when is_map(quotes) do
+    case quotes do
+      %{^symbol => %{"latestTrade" => %{"p" => price}}} when is_number(price) -> price
+      %{^symbol => %{"latestQuote" => %{"ap" => ask, "bp" => bid}}} when is_number(ask) and is_number(bid) -> (ask + bid) / 2
+      _ -> get_bars_price(symbol)
+    end
+  end
+
+  defp get_live_price(%MarketContext{prices: prices}, symbol) when is_map(prices) do
+    case prices do
+      %{^symbol => %{"latestTrade" => %{"p" => price}}} -> price
+      _ -> get_bars_price(symbol)
+    end
+  end
+
+  defp get_live_price(_ctx, symbol), do: get_bars_price(symbol)
+
+  defp get_bars_price(symbol) do
     case BarsStore.get_closes(symbol) do
       {:ok, closes} when closes != [] -> List.last(closes)
       _ -> nil
@@ -388,8 +406,8 @@ defmodule AlpacaTrader.Engine do
         tier: arb.tier,
         z_score: arb.z_score,
         hedge_ratio: arb.hedge_ratio,
-        entry_price_a: get_current_price(arb.asset),
-        entry_price_b: get_current_price(arb.pair_asset)
+        entry_price_a: get_live_price(ctx, arb.asset),
+        entry_price_b: get_live_price(ctx, arb.pair_asset)
       })
     end
 
@@ -498,26 +516,30 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp discover_new_pairs do
-    case AlpacaTrader.Arbitrage.DiscoveryScanner.discover() do
-      {signals, _count} when signals != [] ->
-        Enum.map(signals, fn sig ->
-          %ArbitragePosition{
-            result: true,
-            asset: sig.asset_a,
-            reason: "DISCOVERED: z=#{sig.z_score} (#{sig.asset_a}↔#{sig.asset_b})",
-            action: :enter,
-            tier: 2,
-            pair_asset: sig.asset_b,
-            direction: sig.direction,
-            hedge_ratio: sig.hedge_ratio,
-            z_score: sig.z_score,
-            spread: sig.z_score,
-            timestamp: DateTime.utc_now()
-          }
-        end)
+    try do
+      case AlpacaTrader.Arbitrage.DiscoveryScanner.discover() do
+        {signals, _count} when signals != [] ->
+          Enum.map(signals, fn sig ->
+            %ArbitragePosition{
+              result: true,
+              asset: sig.asset_a,
+              reason: "DISCOVERED: z=#{sig.z_score} (#{sig.asset_a}↔#{sig.asset_b})",
+              action: :enter,
+              tier: 2,
+              pair_asset: sig.asset_b,
+              direction: sig.direction,
+              hedge_ratio: sig.hedge_ratio,
+              z_score: sig.z_score,
+              spread: sig.z_score,
+              timestamp: DateTime.utc_now()
+            }
+          end)
 
-      _ ->
-        []
+        _ ->
+          []
+      end
+    catch
+      :exit, _ -> []
     end
   end
 

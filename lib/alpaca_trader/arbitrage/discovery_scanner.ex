@@ -56,8 +56,7 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
     candidates =
       AssetStore.all()
       |> Enum.filter(fn a ->
-        a["class"] == "us_equity" and
-          a["tradable"] == true and
+        a["tradable"] == true and
           a["symbol"] not in known and
           a["symbol"] not in state.scanned
       end)
@@ -101,15 +100,24 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
   defp fetch_and_cache_bars([]), do: :ok
 
   defp fetch_and_cache_bars(symbols) do
-    case Client.get_stock_bars(symbols) do
-      {:ok, %{"bars" => data}} when is_map(data) ->
-        # Merge into BarsStore without clearing existing data
-        Enum.each(data, fn {symbol, bars} ->
-          :ets.insert(:bars_store, {symbol, bars})
-        end)
+    {crypto, equities} = Enum.split_with(symbols, &String.contains?(&1, "/"))
 
-      _ ->
-        :ok
+    # Fetch equity bars
+    if equities != [] do
+      case Client.get_stock_bars(equities) do
+        {:ok, %{"bars" => data}} when is_map(data) ->
+          Enum.each(data, fn {sym, bars} -> :ets.insert(:bars_store, {sym, bars}) end)
+        _ -> :ok
+      end
+    end
+
+    # Fetch crypto bars
+    if crypto != [] do
+      case Client.get_crypto_bars(crypto) do
+        {:ok, %{"bars" => data}} when is_map(data) ->
+          Enum.each(data, fn {sym, bars} -> :ets.insert(:bars_store, {sym, bars}) end)
+        _ -> :ok
+      end
     end
   end
 

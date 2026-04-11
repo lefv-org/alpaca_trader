@@ -35,6 +35,23 @@ defmodule AlpacaTrader.Scheduler.Jobs.ArbitrageScanJob do
          {:ok, positions} <- Client.list_positions(),
          {:ok, orders} <- Client.list_orders(%{status: "all", limit: 50}),
          {:ok, snapshots} <- fetch_crypto_quotes(crypto_symbols) do
+      # Fetch live equity prices for open position P&L
+      equity_pos_syms =
+        AlpacaTrader.PairPositionStore.open_positions()
+        |> Enum.flat_map(fn p -> [p.asset_a, p.asset_b] end)
+        |> Enum.reject(&String.contains?(&1, "/"))
+        |> Enum.uniq()
+
+      stock_prices =
+        if equity_pos_syms != [] do
+          case Client.get_stock_snapshots(equity_pos_syms) do
+            {:ok, data} when is_map(data) -> data
+            _ -> %{}
+          end
+        else
+          %{}
+        end
+
       ctx = %MarketContext{
         symbol: nil,
         account: account,
@@ -44,7 +61,8 @@ defmodule AlpacaTrader.Scheduler.Jobs.ArbitrageScanJob do
         bars: nil,
         positions: positions,
         orders: orders,
-        quotes: snapshots
+        quotes: snapshots,
+        prices: stock_prices
       }
 
       {:ok, result} = Engine.scan_and_execute(ctx)

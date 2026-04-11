@@ -11,20 +11,26 @@ defmodule AlpacaTrader.Application do
       AlpacaTraderWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:alpaca_trader, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: AlpacaTrader.PubSub},
-      # Start a worker by calling: AlpacaTrader.Worker.start_link(arg)
-      # {AlpacaTrader.Worker, arg},
-      # Start to serve requests, typically the last entry
+      AlpacaTrader.AssetStore,
+      AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: AlpacaTrader.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+
+    register_jobs()
+
+    result
   end
 
-  # Tell Phoenix to update the endpoint configuration
-  # whenever the application is updated.
+  defp register_jobs do
+    alias AlpacaTrader.Scheduler.Api
+    alias AlpacaTrader.Scheduler.Jobs.AssetSyncJob
+
+    Api.register_job(AssetSyncJob)
+  end
+
   @impl true
   def config_change(changed, _new, removed) do
     AlpacaTraderWeb.Endpoint.config_change(changed, removed)

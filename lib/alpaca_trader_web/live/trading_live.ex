@@ -19,6 +19,10 @@ defmodule AlpacaTraderWeb.TradingLive do
   end
 
   @impl true
+  def handle_event("switch_tab", %{"tab" => "dashboard"}, socket) do
+    {:noreply, socket |> assign(tab: :dashboard, result: nil, error: nil) |> load_dashboard()}
+  end
+
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, assign(socket, tab: String.to_existing_atom(tab), result: nil, error: nil)}
   end
@@ -117,6 +121,58 @@ defmodule AlpacaTraderWeb.TradingLive do
   defp dispatch("get_clock", _), do: Client.get_clock()
   defp dispatch("get_calendar", p), do: Client.get_calendar(p)
   defp dispatch("get_corporate_actions", p), do: Client.get_corporate_actions(p)
+
+  defp dispatch("execute_trade", %{"symbol" => symbol}) do
+    alias AlpacaTrader.Engine
+    alias AlpacaTrader.Engine.MarketContext
+
+    with {:ok, account} <- Client.get_account(),
+         {:ok, clock} <- Client.get_clock(),
+         {:ok, asset} <- Client.get_asset(symbol),
+         {:ok, positions} <- Client.list_positions(),
+         {:ok, orders} <- Client.list_orders(%{status: "all", limit: 10}) do
+      position = Enum.find(positions, fn p -> p["symbol"] == symbol end)
+
+      ctx = %MarketContext{
+        symbol: symbol,
+        account: account,
+        position: position,
+        clock: clock,
+        asset: asset,
+        bars: nil,
+        positions: positions,
+        orders: orders
+      }
+
+      {:ok, output} = Engine.execute_trade(ctx)
+      {:ok, %{input: ctx, output: output}}
+    end
+  end
+
+  defp dispatch("is_in_arbitrage_position", %{"asset" => asset}) do
+    alias AlpacaTrader.Engine
+    alias AlpacaTrader.Engine.MarketContext
+
+    with {:ok, account} <- Client.get_account(),
+         {:ok, clock} <- Client.get_clock(),
+         {:ok, positions} <- Client.list_positions(),
+         {:ok, orders} <- Client.list_orders(%{status: "all", limit: 10}) do
+      ctx = %MarketContext{
+        symbol: asset,
+        account: account,
+        position: nil,
+        clock: clock,
+        asset: nil,
+        bars: nil,
+        positions: positions,
+        orders: orders
+      }
+
+      {:ok, output} = Engine.is_in_arbitrage_position(ctx, asset)
+      {:ok, %{input: ctx, output: output}}
+    end
+  end
+
   defp dispatch(unknown, _), do: {:error, "Unknown action: #{unknown}"}
 
   defp split_symbols(nil), do: []

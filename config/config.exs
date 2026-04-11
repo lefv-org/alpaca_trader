@@ -10,6 +10,10 @@ import Config
 config :alpaca_trader,
   generators: [timestamp_type: :utc_datetime]
 
+config :alpaca_trader, AlpacaTrader.Scheduler.Quantum,
+  jobs: [],
+  timezone: "Etc/UTC"
+
 # Configure the endpoint
 config :alpaca_trader, AlpacaTraderWeb.Endpoint,
   url: [host: "localhost"],

@@ -9,7 +9,7 @@
 
   <%!-- Tab bar --%>
   <div class="border-b border-gray-800 px-6 flex gap-1">
-    <%= for tab <- [:dashboard, :account, :orders, :positions, :assets, :watchlists, :market] do %>
+    <%= for tab <- [:dashboard, :account, :orders, :positions, :assets, :watchlists, :market, :engine] do %>
       <button
         phx-click="switch_tab"
         phx-value-tab={tab}
@@ -638,8 +638,81 @@
       </div>
     </div>
 
+    <%!-- ENGINE --%>
+    <div :if={@tab == :engine} class="space-y-4">
+      <h2 class="text-green-400 font-bold">Trade Engine</h2>
+
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">Execute Trade</div>
+        <p class="text-gray-400 text-xs mb-3">
+          Gathers account, positions, clock, and asset data into a MarketContext,
+          passes it to <code class="text-green-400">execute_trade/1</code>, and returns the PurchaseContext.
+        </p>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="execute_trade" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">symbol</div>
+            <input type="text" name="symbol" placeholder="AAPL" required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Execute
+          </button>
+        </form>
+      </div>
+
+      <%!-- Arbitrage Check --%>
+      <div class="bg-gray-900 rounded p-4 border border-gray-800">
+        <div class="font-bold mb-2">Arbitrage Position Check</div>
+        <p class="text-gray-400 text-xs mb-3">
+          Checks whether an arbitrage position exists for the given asset
+          via <code class="text-green-400">is_in_arbitrage_position/2</code>.
+        </p>
+        <form phx-submit="call" class="flex gap-2 items-end">
+          <input type="hidden" name="action" value="is_in_arbitrage_position" />
+          <div>
+            <div class="text-gray-400 text-xs mb-1">asset</div>
+            <input type="text" name="asset" placeholder="BTC" required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+          </div>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Check
+          </button>
+        </form>
+      </div>
+
+      <%!-- Side-by-side input/output display --%>
+      <%= if is_map(@result) && Map.has_key?(@result, :input) do %>
+        <div class="grid grid-cols-2 gap-4 h-[500px]">
+          <div class="flex flex-col min-h-0">
+            <div class="text-gray-500 text-xs uppercase tracking-wide mb-2 shrink-0">MarketContext (input)</div>
+            <div
+              id={"engine-input-#{@result.output.timestamp}"}
+              phx-hook="CollapsibleJson"
+              data-json={Jason.encode!(@result.input)}
+              class="bg-gray-900 border border-gray-700 rounded p-4 text-xs overflow-auto font-mono flex-1 min-h-0"
+            ></div>
+          </div>
+          <div class="flex flex-col min-h-0">
+            <div class="text-gray-500 text-xs uppercase tracking-wide mb-2 shrink-0">PurchaseContext (output)</div>
+            <div
+              id={"engine-output-#{@result.output.timestamp}"}
+              phx-hook="CollapsibleJson"
+              data-json={Jason.encode!(@result.output)}
+              class="bg-gray-900 border border-green-800 rounded p-4 text-xs overflow-auto font-mono flex-1 min-h-0"
+            ></div>
+          </div>
+        </div>
+      <% end %>
+      <%= if @error do %>
+        <div class="bg-red-950 border border-red-800 rounded p-4 text-red-300 text-xs">
+          <%= @error %>
+        </div>
+      <% end %>
+    </div>
+
     <%!-- Shared result panel — visible on all non-dashboard tabs --%>
-    <div :if={@tab != :dashboard && (@result != nil || @error != nil)} class="mt-6">
+    <div :if={@tab not in [:dashboard, :engine] && (@result != nil || @error != nil)} class="mt-6">
       <div class="text-gray-500 text-xs uppercase tracking-wide mb-2">Response</div>
       <div :if={@error} class="bg-red-950 border border-red-800 rounded p-4 text-red-300 text-xs">
         <%= @error %>

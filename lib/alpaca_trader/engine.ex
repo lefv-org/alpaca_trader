@@ -289,9 +289,10 @@ defmodule AlpacaTrader.Engine do
   defp reverse_direction(:long_a_short_b), do: :long_b_short_a
   defp reverse_direction(:long_b_short_a), do: :long_a_short_b
 
+  # Use 1-minute bars for crypto pairs, daily bars for equities
   defp recompute_z_score(asset_a, asset_b) do
-    with {:ok, closes_a} <- BarsStore.get_closes(asset_a),
-         {:ok, closes_b} <- BarsStore.get_closes(asset_b) do
+    with {:ok, closes_a} <- get_best_closes(asset_a),
+         {:ok, closes_b} <- get_best_closes(asset_b) do
       len = min(length(closes_a), length(closes_b))
       a = Enum.take(closes_a, -len)
       b = Enum.take(closes_b, -len)
@@ -302,8 +303,8 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp recompute_spread_series(asset_a, asset_b) do
-    with {:ok, closes_a} <- BarsStore.get_closes(asset_a),
-         {:ok, closes_b} <- BarsStore.get_closes(asset_b) do
+    with {:ok, closes_a} <- get_best_closes(asset_a),
+         {:ok, closes_b} <- get_best_closes(asset_b) do
       len = min(length(closes_a), length(closes_b))
       if len >= 20 do
         a = Enum.take(closes_a, -len)
@@ -315,6 +316,19 @@ defmodule AlpacaTrader.Engine do
       end
     else
       _ -> nil
+    end
+  end
+
+  # Crypto: prefer 1-minute bars (live), fall back to daily
+  # Equity: use daily bars only
+  defp get_best_closes(symbol) do
+    if String.contains?(symbol, "/") do
+      case AlpacaTrader.MinuteBarCache.get_closes(symbol) do
+        {:ok, closes} when length(closes) >= 20 -> {:ok, closes}
+        _ -> BarsStore.get_closes(symbol)
+      end
+    else
+      BarsStore.get_closes(symbol)
     end
   end
 
@@ -574,6 +588,7 @@ defmodule AlpacaTrader.Engine do
   # ── HELPERS ────────────────────────────────────────────────
 
   defp do_scan(ctx) do
+    market_open? = get_in(ctx.clock, ["is_open"]) == true
     relationship_symbols = AssetRelationships.all_symbols() |> MapSet.new()
 
     # Also include assets with open positions (for exit checks)
@@ -587,8 +602,21 @@ defmodule AlpacaTrader.Engine do
     assets =
       AlpacaTrader.AssetStore.all()
       |> Enum.filter(fn asset ->
-        asset["class"] == "crypto" or asset["symbol"] in all_symbols
+        is_crypto = asset["class"] == "crypto"
+        is_known = asset["symbol"] in all_symbols
+
+        if market_open? do
+          # Market open: trade everything
+          is_crypto or is_known
+        else
+          # Market closed: crypto only (has live 1-min bars)
+          is_crypto or (is_known and String.contains?(asset["symbol"], "/"))
+        end
       end)
+
+    # Refresh 1-minute bars for all crypto symbols we're scanning
+    crypto_syms = assets |> Enum.filter(& &1["class"] == "crypto") |> Enum.map(& &1["symbol"])
+    AlpacaTrader.MinuteBarCache.refresh(crypto_syms)
 
     # Known asset scan (Tier 1/2/3 + exit checks)
     results =

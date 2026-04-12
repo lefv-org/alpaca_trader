@@ -117,7 +117,11 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
     case Req.post("#{base_url}/v1/chat/completions", json: body, headers: headers, receive_timeout: 8_000) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
-        parse_opinion(text)
+        result = parse_opinion(text)
+        if result == nil do
+          Logger.debug("[LLM Gate] MLX unparsed: #{String.slice(text, 0..120)}")
+        end
+        result
       _ -> nil
     end
   end
@@ -179,24 +183,41 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   end
 
   defp extract_with_regex(text) do
-    decision = case Regex.run(~r/"decision"\s*:\s*"(\w+)"/, text) do
+    decision = case Regex.run(~r/"decision"\s*:\s*"(\w+)"/i, text) do
       [_, d] -> d
-      _ -> nil
+      _ ->
+        # Try to infer from content
+        cond do
+          String.contains?(text, "confirm") -> "confirm"
+          String.contains?(text, "suppress") -> "suppress"
+          String.contains?(text, "reduce") -> "reduce"
+          true -> nil
+        end
     end
 
-    conviction = case Regex.run(~r/"conviction"\s*:\s*([\d.]+)/, text) do
+    conviction = case Regex.run(~r/"conviction"\s*:\s*([\d.]+)/i, text) do
       [_, c] ->
         case Float.parse(c) do
           {f, _} -> min(max(f, 0.0), 1.0)
           :error -> nil
         end
-      _ -> nil
+      _ ->
+        # Try to find any decimal that looks like a score
+        case Regex.run(~r/conviction[:\s]*([\d.]+)/i, text) do
+          [_, c] -> case Float.parse(c) do {f, _} -> min(max(f, 0.0), 1.0); _ -> nil end
+          _ -> nil
+        end
     end
 
     if decision && conviction do
       %{decision: decision, conviction: conviction, reasoning: "", risk_flags: []}
     else
-      nil
+      # Last resort: if the text mentions confirm anywhere, default to 0.7
+      if decision do
+        %{decision: decision, conviction: 0.7, reasoning: "inferred", risk_flags: []}
+      else
+        nil
+      end
     end
   end
 

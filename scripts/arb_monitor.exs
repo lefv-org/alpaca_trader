@@ -9,7 +9,7 @@ alias AlpacaTrader.Scheduler.Jobs.AssetSyncJob
 
 output_file = "arb_results.log"
 File.write!(output_file, "")
-iterations = 30
+iterations = 10
 
 # Initial setup
 IO.puts("Syncing assets...")

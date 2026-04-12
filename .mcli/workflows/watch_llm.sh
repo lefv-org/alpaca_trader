@@ -8,8 +8,8 @@ set -euo pipefail
 
 find_latest_output() {
     local base="/private/tmp/claude-501/-Users-home-repos-alpaca-trader"
-    # Find the largest .output file (the active monitor produces the most output)
-    find "$base" -name "*.output" -type f -size +1k 2>/dev/null | xargs ls -t 2>/dev/null | head -1
+    # Most recently modified output file = the active monitor
+    find "$base" -name "*.output" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1
 }
 
 watch() {

@@ -60,12 +60,24 @@ trades() {
     local follow="${1:-}"
 
     if [ "$follow" = "-f" ]; then
-        local output
-        output=$(find_latest_output)
-        if [ -z "$output" ]; then echo "No active monitor. Start with: mcli run trade up"; exit 1; fi
         echo "═══ FOLLOWING TRADES LIVE ═══"
+        echo "  Start trader first: mcli run trade up"
         echo "───────────────────────────────"
-        tail -f "$output" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
+
+        local output logfile="arb_results.log"
+        output=$(find_latest_output)
+
+        # Tail whichever source is available (task output or log file)
+        if [ -n "$output" ] && [ -f "$logfile" ]; then
+            tail -f "$output" "$logfile" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
+        elif [ -n "$output" ]; then
+            tail -f "$output" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
+        elif [ -f "$logfile" ]; then
+            tail -f "$logfile" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
+        else
+            echo "No trade data found. Start with: mcli run trade up"
+            exit 1
+        fi
     else
         echo "═══ EXECUTED TRADES ═══"
         local logfile="arb_results.log"

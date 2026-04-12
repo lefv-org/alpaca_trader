@@ -13,16 +13,26 @@ find_latest_output() {
 }
 
 watch() {
-    echo "═══ LLM OPINION GATE — LIVE LOGS ═══"
+    local follow="${1:-}"
     local output
     output=$(find_latest_output)
     if [ -z "$output" ]; then
-        echo "No active monitor found. Start arb_monitor.exs first."
+        echo "No active monitor found. Start with: mcli run trade up"
         exit 1
     fi
-    echo "Tailing: $output"
-    echo "─────────────────────────────────────"
-    tail -f "$output" | grep --line-buffered -i "llm gate\|CONFIRMED\|SUPPRESS\|BOUGHT\|SOLD\|polymarket\|conviction\|mlx:\|ollama:\|anthropic:"
+
+    if [ "$follow" = "-f" ]; then
+        echo "═══ LIVE TRADES ═══"
+        echo "Tailing: $output"
+        echo "───────────────────"
+        tail -f "$output" | grep --line-buffered -E "🟢|🔴|⏸|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|TIME EXIT|Executed|PORTFOLIO|equity"
+    else
+        echo "═══ LLM OPINION GATE — LIVE LOGS ═══"
+        echo "Tailing: $output"
+        echo "  Tip: mcli run watch_llm watch -f  (follow trades only)"
+        echo "───────────────────────────────────────"
+        tail -f "$output" | grep --line-buffered -i "llm gate\|CONFIRMED\|SUPPRESS\|BOUGHT\|SOLD\|polymarket\|conviction\|mlx:\|ollama:\|anthropic:"
+    fi
 }
 
 summary() {

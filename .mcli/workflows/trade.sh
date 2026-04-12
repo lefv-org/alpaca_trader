@@ -40,10 +40,11 @@ up() {
     # Trap Ctrl+C to clean up
     trap '_cleanup' INT TERM
 
-    # Run the Phoenix server with the trading cron jobs
-    # Tee to log file so 'watch_llm trades -f' can follow
+    # Run Phoenix server with all cron jobs
+    # Logs to both terminal and file for 'watch_llm trades -f'
     echo "Logging to: $LOG_FILE"
-    exec iex -S mix phx.server 2>&1 | tee -a "$LOG_FILE"
+    echo ""
+    exec elixir --no-halt -S mix phx.server 2>&1 | tee -a "$LOG_FILE"
 }
 
 start() {

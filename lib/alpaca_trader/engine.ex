@@ -3,6 +3,8 @@ defmodule AlpacaTrader.Engine do
   Single entry point for all trade decisions.
   """
 
+  require Logger
+
   alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships}
   alias AlpacaTrader.Arbitrage.SpreadCalculator
   alias AlpacaTrader.{BarsStore, PairPositionStore}
@@ -433,9 +435,9 @@ defmodule AlpacaTrader.Engine do
     trades =
       Enum.flat_map(hits, fn arb ->
         case arb.action do
-          :enter -> execute_entry(ctx, arb)
+          :enter -> gate_and_enter(ctx, arb)
           :exit -> execute_exit(ctx, arb)
-          :flip -> execute_flip(ctx, arb)
+          :flip -> gate_and_flip(ctx, arb)
           _ -> []
         end
       end)
@@ -447,6 +449,47 @@ defmodule AlpacaTrader.Engine do
        scanned: scanned, hits: length(hits), opportunities: hits,
        executed: executed, trades: trades, timestamp: DateTime.utc_now()
      }}
+  end
+
+  # ── LLM CONVICTION GATE ─────────────────────────────────────
+
+  defp gate_and_enter(ctx, arb) do
+    case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
+      {:ok, %{decision: "suppress"}} ->
+        Logger.info("[LLM Gate] SUPPRESSED #{arb.asset}: #{arb.reason}")
+        []
+
+      {:ok, %{conviction: c}} when c < 0.3 ->
+        Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for #{arb.asset}")
+        []
+
+      {:ok, %{conviction: c, reasoning: r}} ->
+        Logger.info("[LLM Gate] CONFIRMED #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+        execute_entry(ctx, arb)
+
+      _ ->
+        execute_entry(ctx, arb)
+    end
+  end
+
+  defp gate_and_flip(ctx, arb) do
+    case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
+      {:ok, %{decision: "suppress"}} ->
+        Logger.info("[LLM Gate] SUPPRESSED flip #{arb.asset}")
+        []
+
+      {:ok, %{conviction: c}} when c < 0.3 ->
+        # Low conviction on flip → just exit, don't reverse
+        Logger.info("[LLM Gate] LOW CONVICTION flip #{arb.asset}, exiting instead")
+        execute_exit(ctx, arb)
+
+      {:ok, %{conviction: c, reasoning: r}} ->
+        Logger.info("[LLM Gate] CONFIRMED flip #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+        execute_flip(ctx, arb)
+
+      _ ->
+        execute_flip(ctx, arb)
+    end
   end
 
   # ── ENTRY EXECUTION ────────────────────────────────────────

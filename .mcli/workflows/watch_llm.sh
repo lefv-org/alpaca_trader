@@ -7,8 +7,15 @@
 set -euo pipefail
 
 find_latest_output() {
+    # Check for background trader log first
+    local logfile="arb_results.log"
+    if [ -f "$logfile" ] && [ "$(wc -c < "$logfile" 2>/dev/null)" -gt 100 ]; then
+        echo "$logfile"
+        return
+    fi
+
+    # Fall back to task output files
     local base="/private/tmp/claude-501/-Users-home-repos-alpaca-trader"
-    # Most recently modified output file = the active monitor
     find "$base" -name "*.output" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1
 }
 
@@ -60,24 +67,17 @@ trades() {
     local follow="${1:-}"
 
     if [ "$follow" = "-f" ]; then
-        echo "═══ FOLLOWING TRADES LIVE ═══"
-        echo "  Start trader first: mcli run trade up"
-        echo "───────────────────────────────"
+        local logfile="arb_results.log"
 
-        local output logfile="arb_results.log"
-        output=$(find_latest_output)
-
-        # Tail whichever source is available (task output or log file)
-        if [ -n "$output" ] && [ -f "$logfile" ]; then
-            tail -f "$output" "$logfile" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
-        elif [ -n "$output" ]; then
-            tail -f "$output" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
-        elif [ -f "$logfile" ]; then
-            tail -f "$logfile" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
-        else
-            echo "No trade data found. Start with: mcli run trade up"
+        if [ ! -f "$logfile" ]; then
+            echo "No log file. Start trader first: mcli run trade up"
             exit 1
         fi
+
+        echo "═══ FOLLOWING TRADES LIVE ═══"
+        echo "  Tailing: $logfile"
+        echo "───────────────────────────────"
+        tail -f "$logfile" | grep --line-buffered -iE "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity|PORTFOLIO|LLM Gate|arbitrage|scan"
     else
         echo "═══ EXECUTED TRADES ═══"
         local logfile="arb_results.log"

@@ -41,8 +41,9 @@ up() {
     trap '_cleanup' INT TERM
 
     # Run the Phoenix server with the trading cron jobs
-    # This starts all scheduled jobs: AssetSync, ArbitrageScan, BarSync, PairBuild
-    exec iex -S mix phx.server
+    # Tee to log file so 'watch_llm trades -f' can follow
+    echo "Logging to: $LOG_FILE"
+    exec iex -S mix phx.server 2>&1 | tee -a "$LOG_FILE"
 }
 
 start() {
@@ -56,7 +57,7 @@ start() {
         exit 1
     fi
 
-    nohup mix phx.server > "$LOG_FILE" 2>&1 &
+    nohup mix phx.server >> "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     echo "Started (PID $!)"
     echo "Log: $LOG_FILE"

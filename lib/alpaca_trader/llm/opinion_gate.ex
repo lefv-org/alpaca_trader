@@ -83,8 +83,8 @@ defmodule AlpacaTrader.LLM.OpinionGate do
             Logger.info("[LLM Gate] #{name}: #{opinion.decision} conviction=#{opinion.conviction}")
             {:halt, opinion}
 
-          _ ->
-            Logger.warning("[LLM Gate] #{name} returned bad response, trying next")
+          other ->
+            IO.puts("[LLM Gate] #{name} returned: #{inspect(other) |> String.slice(0..80)}")
             {:cont, fallback()}
         end
       rescue
@@ -115,14 +115,29 @@ defmodule AlpacaTrader.LLM.OpinionGate do
       ]
     }
 
-    case Req.post("#{base_url}/v1/chat/completions", json: body, headers: headers, receive_timeout: 8_000) do
+    case Req.post("#{base_url}/v1/chat/completions", json: body, headers: headers, receive_timeout: 15_000, retry: false) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
         result = parse_opinion(text)
         if result == nil do
-          Logger.debug("[LLM Gate] MLX unparsed: #{String.slice(text, 0..120)}")
+          Logger.warning("[LLM Gate] PARSE FAIL: #{String.slice(text, 0..200)}")
         end
         result
-      _ -> nil
+
+      {:ok, %{status: status}} ->
+        Logger.warning("[LLM Gate] HTTP #{status}")
+        nil
+
+      {:error, %{reason: :timeout}} ->
+        Logger.warning("[LLM Gate] TIMEOUT (8s)")
+        nil
+
+      {:error, reason} ->
+        Logger.warning("[LLM Gate] ERROR: #{inspect(reason) |> String.slice(0..80)}")
+        nil
+
+      other ->
+        Logger.warning("[LLM Gate] UNEXPECTED: #{inspect(other) |> String.slice(0..120)}")
+        nil
     end
   end
 
@@ -183,42 +198,66 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   end
 
   defp extract_with_regex(text) do
+    # Try exact key names first, then fuzzy matches
     decision = case Regex.run(~r/"decision"\s*:\s*"(\w+)"/i, text) do
-      [_, d] -> d
+      [_, d] -> normalize_decision(d)
       _ ->
-        # Try to infer from content
         cond do
-          String.contains?(text, "confirm") -> "confirm"
-          String.contains?(text, "suppress") -> "suppress"
-          String.contains?(text, "reduce") -> "reduce"
+          Regex.match?(~r/confirm/i, text) -> "confirm"
+          Regex.match?(~r/suppress/i, text) -> "suppress"
+          Regex.match?(~r/reduce/i, text) -> "reduce"
           true -> nil
         end
     end
 
-    conviction = case Regex.run(~r/"conviction"\s*:\s*([\d.]+)/i, text) do
-      [_, c] ->
-        case Float.parse(c) do
-          {f, _} -> min(max(f, 0.0), 1.0)
-          :error -> nil
-        end
-      _ ->
-        # Try to find any decimal that looks like a score
-        case Regex.run(~r/conviction[:\s]*([\d.]+)/i, text) do
-          [_, c] -> case Float.parse(c) do {f, _} -> min(max(f, 0.0), 1.0); _ -> nil end
-          _ -> nil
-        end
-    end
+    # Try conviction, confidence, score — any numeric score field
+    conviction = extract_score(text)
 
-    if decision && conviction do
-      %{decision: decision, conviction: conviction, reasoning: "", risk_flags: []}
-    else
-      # Last resort: if the text mentions confirm anywhere, default to 0.7
-      if decision do
+    cond do
+      decision && conviction ->
+        %{decision: decision, conviction: conviction, reasoning: "", risk_flags: []}
+
+      decision ->
         %{decision: decision, conviction: 0.7, reasoning: "inferred", risk_flags: []}
-      else
+
+      conviction && conviction > 0.5 ->
+        %{decision: "confirm", conviction: conviction, reasoning: "inferred", risk_flags: []}
+
+      true ->
         nil
-      end
     end
+  end
+
+  defp normalize_decision(d) do
+    d = String.downcase(d)
+    cond do
+      String.starts_with?(d, "confirm") -> "confirm"
+      String.starts_with?(d, "suppress") -> "suppress"
+      String.starts_with?(d, "reduce") -> "reduce"
+      true -> d
+    end
+  end
+
+  defp extract_score(text) do
+    patterns = [
+      ~r/"conviction"\s*:\s*([\d.]+)/i,
+      ~r/"confidence"\s*:\s*([\d.]+)/i,
+      ~r/"score"\s*:\s*([\d.]+)/i,
+      ~r/conviction[:\s]+([\d.]+)/i,
+      ~r/confidence[:\s]+([\d.]+)/i
+    ]
+
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, text) do
+        [_, c] ->
+          case Float.parse(c) do
+            {f, _} when f >= 0.0 and f <= 1.0 -> f
+            {f, _} when f > 1.0 and f <= 100.0 -> f / 100.0
+            _ -> nil
+          end
+        _ -> nil
+      end
+    end)
   end
 
   # ── Cache ──────────────────────────────────────────────────

@@ -35,7 +35,7 @@ defmodule AlpacaTrader.Engine do
 
   # ── execute_trade ──────────────────────────────────────────
 
-  def execute_trade(%MarketContext{} = ctx, %{"side" => side, "qty" => qty} = params)
+  def execute_trade(%MarketContext{} = ctx, %{"side" => side} = params)
       when side in ["buy", "sell"] do
     asset_class = get_in(ctx.asset, ["class"]) || "us_equity"
     market_open? = get_in(ctx.clock, ["is_open"]) == true
@@ -51,11 +51,19 @@ defmodule AlpacaTrader.Engine do
       true ->
         order_params = %{
           symbol: ctx.symbol,
-          qty: qty,
           side: side,
           type: params["type"] || "market",
           time_in_force: params["time_in_force"] || if(asset_class == "crypto", do: "gtc", else: "day")
         }
+
+        # Use notional (dollar amount) or qty
+        order_params = cond do
+          params["notional"] -> Map.put(order_params, :notional, params["notional"])
+          params["qty"] -> Map.put(order_params, :qty, params["qty"])
+          true -> Map.put(order_params, :qty, "1")
+        end
+
+        order_params = order_params
         |> maybe_put(:limit_price, params["limit_price"])
         |> maybe_put(:stop_price, params["stop_price"])
 
@@ -66,7 +74,7 @@ defmodule AlpacaTrader.Engine do
                action: if(side == "buy", do: :bought, else: :sold),
                symbol: ctx.symbol,
                reason: "order #{order["status"]}",
-               qty: qty, side: side, order: order,
+               qty: params["qty"] || params["notional"], side: side, order: order,
                timestamp: DateTime.utc_now()
              }}
 
@@ -590,9 +598,11 @@ defmodule AlpacaTrader.Engine do
 
   # ── ORDER PARAMS BUILDERS ──────────────────────────────────
 
+  @order_notional "15"
+
   defp build_entry_params(%ArbitragePosition{tier: 1} = arb) do
     %{"side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
-      "qty" => "1", "type" => "market"}
+      "notional" => @order_notional, "type" => "market"}
   end
 
   defp build_entry_params(%ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
@@ -603,12 +613,12 @@ defmodule AlpacaTrader.Engine do
       end
 
     %{pair: true, legs: [
-      %{"symbol" => long_sym, "side" => "buy", "qty" => "1", "type" => "market"},
-      %{"symbol" => short_sym, "side" => "sell", "qty" => "1", "type" => "market"}
+      %{"symbol" => long_sym, "side" => "buy", "notional" => @order_notional, "type" => "market"},
+      %{"symbol" => short_sym, "side" => "sell", "notional" => @order_notional, "type" => "market"}
     ]}
   end
 
-  defp build_entry_params(_arb), do: %{"side" => "buy", "qty" => "1", "type" => "market"}
+  defp build_entry_params(_arb), do: %{"side" => "buy", "notional" => @order_notional, "type" => "market"}
 
   defp build_exit_params(%ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     # Reverse the entry: sell what was bought, buy back what was shorted
@@ -619,13 +629,13 @@ defmodule AlpacaTrader.Engine do
       end
 
     %{pair: true, legs: [
-      %{"symbol" => sell_sym, "side" => "sell", "qty" => "1", "type" => "market"},
-      %{"symbol" => buy_sym, "side" => "buy", "qty" => "1", "type" => "market"}
+      %{"symbol" => sell_sym, "side" => "sell", "notional" => @order_notional, "type" => "market"},
+      %{"symbol" => buy_sym, "side" => "buy", "notional" => @order_notional, "type" => "market"}
     ]}
   end
 
   defp build_exit_params(arb) do
-    %{"side" => "sell", "qty" => "1", "type" => "market", "symbol" => arb.asset}
+    %{"side" => "sell", "notional" => @order_notional, "type" => "market", "symbol" => arb.asset}
   end
 
   # ── HELPERS ────────────────────────────────────────────────

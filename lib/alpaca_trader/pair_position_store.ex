@@ -34,7 +34,12 @@ defmodule AlpacaTrader.PairPositionStore do
       :exit_z_threshold,
       :stop_z_threshold,
       :max_hold_bars,
-      :status
+      :status,
+
+      # Flip tracking
+      flip_count: 0,
+      consecutive_losses: 0,
+      last_flip_time: nil
     ]
   end
 
@@ -112,6 +117,60 @@ defmodule AlpacaTrader.PairPositionStore do
         :error
     end
   end
+
+  @doc "Flip a position: close old, open reversed with flip tracking."
+  def flip_position(id, was_profitable) do
+    case :ets.lookup(@table, id) do
+      [{^id, %PairPosition{} = pos}] ->
+        # Close old position
+        :ets.insert(@table, {id, %PairPosition{pos | status: :closed}})
+
+        # Open reversed position with flip tracking
+        new_consecutive = if was_profitable, do: 0, else: pos.consecutive_losses + 1
+
+        {:ok, new_pos} = open_position(%{
+          asset_a: pos.asset_a,
+          asset_b: pos.asset_b,
+          direction: reverse_direction(pos.direction),
+          tier: pos.tier,
+          z_score: pos.current_z_score,
+          hedge_ratio: pos.entry_hedge_ratio,
+          entry_price_a: pos.entry_price_a,
+          entry_price_b: pos.entry_price_b
+        })
+
+        # Update flip tracking on new position
+        flipped = %PairPosition{
+          new_pos |
+          flip_count: pos.flip_count + 1,
+          consecutive_losses: new_consecutive,
+          last_flip_time: DateTime.utc_now()
+        }
+        :ets.insert(@table, {flipped.id, flipped})
+        {:ok, flipped}
+
+      [] ->
+        :error
+    end
+  end
+
+  @doc "Check if a position can flip (circuit breaker)."
+  def can_flip?(id) do
+    case :ets.lookup(@table, id) do
+      [{^id, %PairPosition{} = pos}] ->
+        max_flips = 4
+        max_consecutive_losses = 3
+
+        pos.flip_count < max_flips and
+          pos.consecutive_losses < max_consecutive_losses
+
+      [] ->
+        false
+    end
+  end
+
+  defp reverse_direction(:long_a_short_b), do: :long_b_short_a
+  defp reverse_direction(:long_b_short_a), do: :long_a_short_b
 
   @doc "List all open positions."
   def open_positions do

@@ -100,8 +100,9 @@ for i <- 1..iterations do
   end
 
   # Run dry scan
-  {:ok, result} = Engine.scan_arbitrage(ctx)
-  log.("Scanned: #{result.scanned} | Hits: #{result.hits}")
+  # LIVE EXECUTION — real trades on paper account
+  {:ok, result} = Engine.scan_and_execute(ctx)
+  log.("Scanned: #{result.scanned} | Hits: #{result.hits} | Executed: #{result.executed}")
 
   # Log all opportunities
   for opp <- result.opportunities do
@@ -137,38 +138,15 @@ for i <- 1..iterations do
     end
   end
 
-  # Simulate what scan_and_execute would do (without actually trading)
-  if result.hits > 0 do
-    for opp <- result.opportunities do
-      case opp.action do
-        :enter ->
-          log.("  → WOULD ENTER: #{opp.asset}" <> if(opp.pair_asset, do: " ↔ #{opp.pair_asset}", else: ""))
-          # Actually track the position so exit logic works in subsequent scans
-          if opp.tier in [2, 3] and opp.pair_asset do
-            # Record entry prices from live data
-            price_a = get_in(snapshots, [opp.asset, "latestTrade", "p"]) ||
-                      (case BarsStore.get_closes(opp.asset) do {:ok, c} when c != [] -> List.last(c); _ -> nil end)
-            price_b = get_in(snapshots, [opp.pair_asset, "latestTrade", "p"]) ||
-                      (case BarsStore.get_closes(opp.pair_asset) do {:ok, c} when c != [] -> List.last(c); _ -> nil end)
-
-            PairPositionStore.open_position(%{
-              asset_a: opp.asset, asset_b: opp.pair_asset,
-              direction: opp.direction, tier: opp.tier,
-              z_score: opp.z_score, hedge_ratio: opp.hedge_ratio,
-              entry_price_a: price_a, entry_price_b: price_b
-            })
-            log.("  → POSITION OPENED: #{opp.asset}↔#{opp.pair_asset} (entry: #{price_a || "?"} / #{price_b || "?"})")
-          end
-        :exit ->
-          log.("  → WOULD EXIT: #{opp.asset}" <> if(opp.pair_asset, do: " ↔ #{opp.pair_asset}", else: ""))
-          pos = PairPositionStore.find_open_for_asset(opp.asset)
-          if pos do
-            PairPositionStore.close_position(pos.id)
-            log.("  → POSITION CLOSED: #{pos.asset_a}↔#{pos.asset_b} after #{pos.bars_held} bars")
-          end
-        _ -> nil
-      end
+  # Log executed trades (scan_and_execute already executed them)
+  for trade <- result.trades do
+    emoji = case trade.action do
+      :bought -> "🟢 BOUGHT"
+      :sold -> "🔴 SOLD"
+      :hold -> "⏸  HELD"
     end
+    log.("  #{emoji} #{trade.symbol} qty=#{trade.qty || "-"} #{trade.reason}")
+    if trade.order, do: log.("    order_id=#{trade.order["id"]} status=#{trade.order["status"]}")
   end
 
   if i < iterations do

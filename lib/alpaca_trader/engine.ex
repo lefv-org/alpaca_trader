@@ -129,33 +129,53 @@ defmodule AlpacaTrader.Engine do
     z = if current, do: current.z_score, else: pos.current_z_score
     PairPositionStore.tick(pos.id, z)
 
+    # Compute trend strength for flip gate
+    spread_series = recompute_spread_series(pos.asset_a, pos.asset_b)
+    trend = if spread_series, do: SpreadCalculator.trend_strength(spread_series), else: 0.0
+
+    # Did z-score cross to opposite side? (flip candidate)
+    z_crossed = current != nil and pos.entry_z_score != nil and
+      ((pos.entry_z_score > 0 and current.z_score < -1.5) or
+       (pos.entry_z_score < 0 and current.z_score > 1.5))
+
+    can_flip = z_crossed and trend > 25 and PairPositionStore.can_flip?(pos.id)
+
     cond do
       # 1. PROFIT TARGET: spread moved in our favor → SELL
       pnl != nil and pnl.profit_pct >= profit_target ->
         exit_signal(asset, related, pos,
           "TAKE PROFIT: #{Float.round(pnl.profit_pct, 2)}% gain ($#{Float.round(pnl.dollar_pnl, 2)}) [target: #{profit_target}%]")
 
-      # 2. STOP LOSS: z-score diverged further
+      # 2. FLIP: z-score crossed to opposite side + trending → reverse position
+      can_flip ->
+        flip_signal(asset, related, pos, current.z_score, trend, pnl)
+
+      # 3. STOP LOSS: z-score diverged further
       current != nil and abs(current.z_score) >= pos.stop_z_threshold ->
         exit_signal(asset, related, pos,
           "STOP LOSS: z=#{current.z_score} exceeded #{pos.stop_z_threshold}")
 
-      # 3. CUT LOSS: P&L below tier-specific threshold
+      # 4. CUT LOSS: P&L below tier-specific threshold
       pnl != nil and pnl.profit_pct <= cut_loss ->
-        exit_signal(asset, related, pos,
-          "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)}) [limit: #{cut_loss}%]")
+        # If trending, flip instead of just cutting
+        if trend > 25 and PairPositionStore.can_flip?(pos.id) do
+          flip_signal(asset, related, pos, z, trend, pnl)
+        else
+          exit_signal(asset, related, pos,
+            "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)}) [limit: #{cut_loss}%]")
+        end
 
-      # 4. TIME EXIT: held too long
+      # 5. TIME EXIT: held too long
       pos.bars_held >= pos.max_hold_bars ->
         exit_signal(asset, related, pos,
           "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}")
 
-      # 5. COINTEGRATION BROKEN: can't compute z-score anymore
+      # 6. COINTEGRATION BROKEN: can't compute z-score anymore
       current == nil ->
         exit_signal(asset, related, pos,
           "PAIR BROKEN: cannot compute spread, P&L=#{format_pnl(pnl)}")
 
-      # 6. Z-SCORE REVERSION: spread reverted to mean
+      # 7. Z-SCORE REVERSION: spread reverted to mean
       abs(current.z_score) <= pos.exit_z_threshold ->
         exit_signal(asset, related, pos,
           "Z-REVERSION: z=#{current.z_score}, P&L=#{format_pnl(pnl)}")
@@ -248,6 +268,24 @@ defmodule AlpacaTrader.Engine do
      }}
   end
 
+  defp flip_signal(asset, related, pos, current_z, trend, pnl) do
+    {:ok,
+     %ArbitragePosition{
+       result: true,
+       asset: asset,
+       reason: "FLIP: z=#{current_z} crossed (trend=#{trend}), P&L=#{format_pnl(pnl)}, flip##{pos.flip_count + 1}",
+       related_positions: related,
+       action: :flip,
+       tier: pos.tier,
+       pair_asset: if(pos.asset_a == asset, do: pos.asset_b, else: pos.asset_a),
+       direction: reverse_direction(pos.direction),
+       hedge_ratio: pos.entry_hedge_ratio,
+       z_score: current_z,
+       spread: current_z,
+       timestamp: DateTime.utc_now()
+     }}
+  end
+
   defp reverse_direction(:long_a_short_b), do: :long_b_short_a
   defp reverse_direction(:long_b_short_a), do: :long_a_short_b
 
@@ -258,6 +296,23 @@ defmodule AlpacaTrader.Engine do
       a = Enum.take(closes_a, -len)
       b = Enum.take(closes_b, -len)
       SpreadCalculator.analyze(a, b)
+    else
+      _ -> nil
+    end
+  end
+
+  defp recompute_spread_series(asset_a, asset_b) do
+    with {:ok, closes_a} <- BarsStore.get_closes(asset_a),
+         {:ok, closes_b} <- BarsStore.get_closes(asset_b) do
+      len = min(length(closes_a), length(closes_b))
+      if len >= 20 do
+        a = Enum.take(closes_a, -len)
+        b = Enum.take(closes_b, -len)
+        ratio = SpreadCalculator.hedge_ratio(a, b)
+        SpreadCalculator.spread_series(a, b, ratio)
+      else
+        nil
+      end
     else
       _ -> nil
     end
@@ -366,6 +421,7 @@ defmodule AlpacaTrader.Engine do
         case arb.action do
           :enter -> execute_entry(ctx, arb)
           :exit -> execute_exit(ctx, arb)
+          :flip -> execute_flip(ctx, arb)
           _ -> []
         end
       end)
@@ -442,6 +498,37 @@ defmodule AlpacaTrader.Engine do
     if pos, do: PairPositionStore.close_position(pos.id)
 
     trades
+  end
+
+  # ── FLIP EXECUTION: close old + open reversed ──────────────
+
+  defp execute_flip(ctx, %ArbitragePosition{} = arb) do
+    # Step 1: Close the current position (same as exit)
+    exit_trades = execute_exit(ctx, arb)
+
+    # Step 2: Open the reversed position
+    reversed_arb = %ArbitragePosition{arb | direction: arb.direction, action: :enter}
+    entry_trades = execute_entry(ctx, reversed_arb)
+
+    # Step 3: Track the flip in PairPositionStore
+    was_profitable =
+      Enum.any?(exit_trades, fn t -> t.action in [:bought, :sold] end)
+
+    case PairPositionStore.find_open_for_asset(arb.asset) do
+      %PairPositionStore.PairPosition{} = pos ->
+        :ets.insert(:pair_position_store, {
+          pos.id,
+          %PairPositionStore.PairPosition{
+            pos |
+            flip_count: pos.flip_count + 1,
+            consecutive_losses: if(was_profitable, do: 0, else: pos.consecutive_losses + 1),
+            last_flip_time: DateTime.utc_now()
+          }
+        })
+      _ -> :ok
+    end
+
+    exit_trades ++ entry_trades
   end
 
   # ── ORDER PARAMS BUILDERS ──────────────────────────────────

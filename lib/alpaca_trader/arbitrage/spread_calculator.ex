@@ -108,4 +108,28 @@ defmodule AlpacaTrader.Arbitrage.SpreadCalculator do
       current_spread: Float.round(List.last(spread), 4)
     }
   end
+
+  @doc """
+  Trend strength of a spread series (efficiency ratio, 0-100).
+  > 25 = trending (safe to flip), < 20 = choppy (don't flip).
+  """
+  def trend_strength(spread) when length(spread) < 10, do: 0.0
+
+  def trend_strength(spread) do
+    changes =
+      spread
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.map(fn [a, b] -> b - a end)
+
+    if changes == [] do
+      0.0
+    else
+      net_move = abs(Enum.sum(changes))
+      total_move = Enum.map(changes, &abs/1) |> Enum.sum()
+
+      if total_move == 0,
+        do: 0.0,
+        else: Float.round(net_move / total_move * 100, 1)
+    end
+  end
 end

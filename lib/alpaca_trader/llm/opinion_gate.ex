@@ -107,7 +107,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
     body = %{
       model: model,
-      max_tokens: 150,
+      max_tokens: 300,
       temperature: 0.1,
       messages: [
         %{role: "system", content: system_prompt()},
@@ -129,7 +129,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   defp call_anthropic(base_url, model, api_key, prompt) do
     body = %{
       model: model,
-      max_tokens: 150,
+      max_tokens: 300,
       system: system_prompt(),
       messages: [%{role: "user", content: prompt}]
     }
@@ -148,15 +148,16 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   # ── Prompt & Parse ─────────────────────────────────────────
 
   defp system_prompt do
-    "You are a trading risk analyst. Evaluate arbitrage signals. " <>
-    "Respond ONLY with raw JSON, no markdown. " <>
-    "Keys: decision (confirm/suppress/reduce), conviction (0.0-1.0), reasoning (one sentence), risk_flags (array)."
+    "You are a quantitative trading analyst scoring statistical arbitrage signals. " <>
+    "Crypto trades 24/7 regardless of stock market hours. " <>
+    "A z-score above 2.0 is a valid entry signal. Higher z-score = stronger signal. " <>
+    "Respond ONLY with raw JSON: {\"decision\":\"confirm\",\"conviction\":0.7,\"reasoning\":\"...\",\"risk_flags\":[]}"
   end
 
-  defp build_prompt(arb, ctx) do
-    open = get_in(ctx.clock, ["is_open"]) || false
+  defp build_prompt(arb, _ctx) do
+    is_crypto = String.contains?(arb.asset || "", "/") or String.contains?(arb.pair_asset || "", "/")
     n = length(AlpacaTrader.PairPositionStore.open_positions())
-    "Pair: #{arb.asset}/#{arb.pair_asset || "-"} | Dir: #{arb.direction} | Z: #{arb.z_score || "-"} | Tier: #{arb.tier} | #{arb.action}\nMarket: #{if open, do: "OPEN", else: "CLOSED"} | Positions: #{n}\n#{arb.reason}\nJSON only."
+    "#{arb.asset} / #{arb.pair_asset || "-"} | #{arb.direction} | z=#{arb.z_score || "-"} | tier #{arb.tier} | #{arb.action} | #{if is_crypto, do: "CRYPTO (24/7)", else: "EQUITY"} | #{n} open positions\n#{arb.reason}\nScore this signal. JSON only."
   end
 
   defp parse_opinion(text) do
@@ -165,17 +166,37 @@ defmodule AlpacaTrader.LLM.OpinionGate do
       |> String.replace(~r/```\n?/, "")
       |> String.trim()
 
-    json_str = case Regex.run(~r/\{[^{}]*"decision"[^{}]*\}/s, cleaned) do
-      [j] -> j
-      _ -> cleaned
+    # Try full JSON parse first
+    result = case Jason.decode(cleaned) do
+      {:ok, %{"decision" => d, "conviction" => c}} when is_number(c) ->
+        %{decision: d, conviction: min(max(c, 0.0), 1.0),
+          reasoning: "", risk_flags: []}
+      _ -> nil
     end
 
-    case Jason.decode(json_str) do
-      {:ok, %{"decision" => d, "conviction" => c} = m} when is_number(c) ->
-        %{decision: d, conviction: min(max(c, 0.0), 1.0),
-          reasoning: (Map.get(m, "reasoning", "") |> to_string() |> String.slice(0..100)),
-          risk_flags: Map.get(m, "risk_flags", [])}
+    # Fallback: extract with regex (handles truncated JSON from max_tokens)
+    result || extract_with_regex(cleaned)
+  end
+
+  defp extract_with_regex(text) do
+    decision = case Regex.run(~r/"decision"\s*:\s*"(\w+)"/, text) do
+      [_, d] -> d
       _ -> nil
+    end
+
+    conviction = case Regex.run(~r/"conviction"\s*:\s*([\d.]+)/, text) do
+      [_, c] ->
+        case Float.parse(c) do
+          {f, _} -> min(max(f, 0.0), 1.0)
+          :error -> nil
+        end
+      _ -> nil
+    end
+
+    if decision && conviction do
+      %{decision: decision, conviction: conviction, reasoning: "", risk_flags: []}
+    else
+      nil
     end
   end
 

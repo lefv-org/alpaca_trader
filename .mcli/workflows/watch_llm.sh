@@ -57,21 +57,34 @@ summary() {
 }
 
 trades() {
-    echo "═══ EXECUTED TRADES ═══"
-    local logfile="arb_results.log"
+    local follow="${1:-}"
 
-    echo "🟢 Buys:  $(grep -c '🟢' "$logfile" 2>/dev/null || echo 0)"
-    echo "🔴 Sells: $(grep -c '🔴' "$logfile" 2>/dev/null || echo 0)"
-    echo ""
-    echo "── Executions Per Scan ──"
-    grep "Executed" "$logfile" 2>/dev/null || echo "none yet"
-    echo ""
-    echo "── Recent Trades ──"
-    grep "🟢\|🔴" "$logfile" 2>/dev/null | tail -20 || echo "none yet"
-    echo ""
-    echo "── Equity ──"
-    grep "Starting equity" "$logfile" 2>/dev/null
-    grep "PORTFOLIO" "$logfile" 2>/dev/null | tail -1
+    if [ "$follow" = "-f" ]; then
+        local output
+        output=$(find_latest_output)
+        if [ -z "$output" ]; then echo "No active monitor. Start with: mcli run trade up"; exit 1; fi
+        echo "═══ FOLLOWING TRADES LIVE ═══"
+        echo "───────────────────────────────"
+        tail -f "$output" | grep --line-buffered -E "🟢|🔴|BOUGHT|SOLD|FLIP|TAKE PROFIT|CUT LOSS|STOP LOSS|Executed|equity=|PORTFOLIO"
+    else
+        echo "═══ EXECUTED TRADES ═══"
+        local logfile="arb_results.log"
+
+        echo "🟢 Buys:  $(grep -c '🟢' "$logfile" 2>/dev/null || echo 0)"
+        echo "🔴 Sells: $(grep -c '🔴' "$logfile" 2>/dev/null || echo 0)"
+        echo ""
+        echo "── Executions Per Scan ──"
+        grep "Executed" "$logfile" 2>/dev/null || echo "none yet"
+        echo ""
+        echo "── Recent Trades ──"
+        grep "🟢\|🔴" "$logfile" 2>/dev/null | tail -20 || echo "none yet"
+        echo ""
+        echo "── Equity ──"
+        grep "Starting equity" "$logfile" 2>/dev/null
+        grep "PORTFOLIO" "$logfile" 2>/dev/null | tail -1
+        echo ""
+        echo "  Tip: mcli run watch_llm trades -f  (follow live)"
+    fi
 }
 
 _list_functions() {

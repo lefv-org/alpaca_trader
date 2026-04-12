@@ -18,6 +18,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.MinuteBarCache,
       AlpacaTrader.Arbitrage.DiscoveryScanner,
       AlpacaTrader.Arbitrage.PairBuilder,
+      AlpacaTrader.Polymarket.SignalGenerator,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]

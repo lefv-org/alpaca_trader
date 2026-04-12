@@ -724,7 +724,17 @@ defmodule AlpacaTrader.Engine do
       :exit, _ -> []
     end
 
-    scanner_hits ++ dynamic_hits
+    # Polymarket probability shift signals (Tier 4)
+    polymarket_hits = try do
+      AlpacaTrader.Polymarket.SignalGenerator.signals()
+      |> Enum.filter(fn sig ->
+        PairPositionStore.find_open_for_asset(sig.asset) == nil
+      end)
+    catch
+      :exit, _ -> []
+    end
+
+    scanner_hits ++ dynamic_hits ++ polymarket_hits
   end
 
   defp signal_to_arb(sig) do

@@ -92,7 +92,6 @@ if config_env() != :test do
     alpaca_key_id: System.fetch_env!("ALPACA_KEY_ID"),
     alpaca_secret_key: System.fetch_env!("ALPACA_SECRET_KEY"),
     anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
-    anthropic_base_url: System.get_env("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-    llm_model: System.get_env("LLM_MODEL", "claude-haiku-4-5-20250501"),
-    llm_strong_model: System.get_env("LLM_STRONG_MODEL", "claude-sonnet-4-5-20250514")
+    llm_base_url: System.get_env("LLM_BASE_URL", "http://localhost:8080"),
+    llm_model: System.get_env("LLM_MODEL", "mlx-community/Ministral-3-8B-Instruct-2512-4bit")
 end

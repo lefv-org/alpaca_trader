@@ -4,12 +4,12 @@ defmodule AlpacaTrader.Polymarket.Client do
   No authentication needed for market data.
   """
 
-  @gamma_url "https://gamma-api.polymarket.com"
-  @clob_url "https://clob.polymarket.com"
+  defp gamma_url, do: Application.get_env(:alpaca_trader, :polymarket_gamma_url, "https://gamma-api.polymarket.com")
+  defp clob_url,  do: Application.get_env(:alpaca_trader, :polymarket_clob_url,  "https://clob.polymarket.com")
 
   @doc "Search for markets by query string."
   def search(query) do
-    get("#{@gamma_url}/public-search", q: query, limit_per_type: 10)
+    get("#{gamma_url()}/public-search", q: query, limit_per_type: 10)
   end
 
   @doc "Get active events, sorted by volume."
@@ -22,22 +22,22 @@ defmodule AlpacaTrader.Polymarket.Client do
       limit: Keyword.get(opts, :limit, 50)
     ]
 
-    get("#{@gamma_url}/events", params)
+    get("#{gamma_url()}/events", params)
   end
 
   @doc "Get a specific event by slug."
   def get_event(slug) do
-    get("#{@gamma_url}/events", slug: slug)
+    get("#{gamma_url()}/events", slug: slug)
   end
 
   @doc "Get midpoint (probability) for a token."
   def get_midpoint(token_id) do
-    get("#{@clob_url}/midpoint", token_id: token_id)
+    get("#{clob_url()}/midpoint", token_id: token_id)
   end
 
   @doc "Batch get midpoints for multiple tokens."
   def get_midpoints(token_ids) when is_list(token_ids) do
-    Req.post("#{@clob_url}/midpoints",
+    Req.post("#{clob_url()}/midpoints",
       json: token_ids,
       headers: [{"content-type", "application/json"}],
       receive_timeout: 10_000
@@ -47,7 +47,7 @@ defmodule AlpacaTrader.Polymarket.Client do
 
   @doc "Get orderbook for a token."
   def get_book(token_id) do
-    get("#{@clob_url}/book", token_id: token_id)
+    get("#{clob_url()}/book", token_id: token_id)
   end
 
   @doc "Get price history for a market."
@@ -58,7 +58,7 @@ defmodule AlpacaTrader.Polymarket.Client do
       fidelity: Keyword.get(opts, :fidelity, 60)
     ]
 
-    get("#{@clob_url}/prices-history", params)
+    get("#{clob_url()}/prices-history", params)
   end
 
   defp get(url, params) do

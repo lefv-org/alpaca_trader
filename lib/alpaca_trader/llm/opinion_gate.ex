@@ -20,12 +20,22 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
 
+  # Runs entirely in the caller's process — no GenServer bottleneck.
+  # ETS is :public so cache reads/writes are safe from any process.
   def evaluate(arb, ctx) do
-    try do
-      GenServer.call(__MODULE__, {:evaluate, arb, ctx}, 15_000)
-    catch
-      :exit, _ -> {:ok, fallback()}
+    key = cache_key(arb)
+    case check_cache(key) do
+      {:ok, cached} ->
+        GenServer.cast(__MODULE__, :hit)
+        {:ok, cached}
+      :miss ->
+        opinion = call_with_failover(arb, ctx)
+        cache(key, opinion)
+        GenServer.cast(__MODULE__, :call)
+        {:ok, opinion}
     end
+  rescue
+    _ -> {:ok, fallback()}
   end
 
   def call_count, do: GenServer.call(__MODULE__, :call_count)
@@ -42,16 +52,10 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   end
 
   @impl true
-  def handle_call({:evaluate, arb, ctx}, _from, state) do
-    key = cache_key(arb)
-    case check_cache(key) do
-      {:ok, cached} -> {:reply, {:ok, cached}, %{state | hits: state.hits + 1}}
-      :miss ->
-        opinion = call_with_failover(arb, ctx)
-        cache(key, opinion)
-        {:reply, {:ok, opinion}, %{state | calls: state.calls + 1}}
-    end
-  end
+  def handle_cast(:call, state), do: {:noreply, %{state | calls: state.calls + 1}}
+
+  @impl true
+  def handle_cast(:hit, state), do: {:noreply, %{state | hits: state.hits + 1}}
 
   @impl true
   def handle_call(:call_count, _from, state), do: {:reply, state, state}
@@ -59,7 +63,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   # ── Provider Failover Chain ────────────────────────────────
 
   defp call_with_failover(arb, ctx) do
-    providers = [
+    all_providers = [
       {:mlx, &call_openai_compatible/4,
         Application.get_env(:alpaca_trader, :llm_base_url, "http://localhost:8080"),
         Application.get_env(:alpaca_trader, :llm_model, "mlx-community/Ministral-3-8B-Instruct-2512-4bit"),
@@ -73,6 +77,11 @@ defmodule AlpacaTrader.LLM.OpinionGate do
         Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20250501"),
         Application.get_env(:alpaca_trader, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY"))}
     ]
+
+    providers = case Application.get_env(:alpaca_trader, :llm_provider) do
+      nil -> all_providers
+      name -> Enum.filter(all_providers, fn {p, _, _, _, _} -> Atom.to_string(p) == name end)
+    end
 
     prompt = build_prompt(arb, ctx)
 

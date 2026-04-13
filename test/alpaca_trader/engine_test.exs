@@ -8,7 +8,7 @@ defmodule AlpacaTrader.EngineTest do
   defp build_context(overrides \\ %{}) do
     defaults = %MarketContext{
       symbol: "AAPL",
-      account: %{"equity" => "100000", "buying_power" => "200000", "cash" => "50000"},
+      account: %{"equity" => "100000", "buying_power" => "200000", "cash" => "50000", "shorting_enabled" => true},
       position: nil,
       clock: %{"is_open" => true, "next_close" => "2026-04-11T16:00:00-04:00"},
       asset: %{"symbol" => "AAPL", "tradable" => true, "name" => "Apple Inc."},
@@ -73,12 +73,41 @@ defmodule AlpacaTrader.EngineTest do
 
       ctx = build_context(%{
         clock: %{"is_open" => true},
-        asset: %{"tradable" => true, "class" => "us_equity"}
+        asset: %{"tradable" => true, "class" => "us_equity"},
+        positions: [%{"symbol" => "AAPL", "qty" => "10"}]
       })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "5"})
       assert result.action == :sold
       assert result.side == "sell"
+    end
+
+    test "allows short sell with no existing position when shorting enabled" do
+      Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
+        Req.Test.json(conn, %{"id" => "o_short", "symbol" => "AAPL", "status" => "accepted", "side" => "sell"})
+      end)
+
+      ctx = build_context(%{
+        clock: %{"is_open" => true},
+        asset: %{"tradable" => true, "class" => "us_equity"},
+        positions: []
+      })
+
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "1"})
+      assert result.action == :sold
+    end
+
+    test "blocks short sell when account does not support shorting" do
+      ctx = build_context(%{
+        account: %{"equity" => "100000", "buying_power" => "200000", "shorting_enabled" => false},
+        clock: %{"is_open" => true},
+        asset: %{"tradable" => true, "class" => "us_equity"},
+        positions: []
+      })
+
+      {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "1"})
+      assert result.action == :hold
+      assert result.reason == "account does not support shorting"
     end
 
     test "allows crypto when market is closed" do

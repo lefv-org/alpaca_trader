@@ -29,8 +29,8 @@ defmodule AlpacaTrader.Arbitrage.ComplementDetector do
   end
 
   defp compute_signal(symbol_a, symbol_b) do
-    with {:ok, closes_a} <- BarsStore.get_closes(symbol_a),
-         {:ok, closes_b} <- BarsStore.get_closes(symbol_b) do
+    with {:ok, closes_a} <- BarsStore.get_closes_best(symbol_a),
+         {:ok, closes_b} <- BarsStore.get_closes_best(symbol_b) do
       len = min(length(closes_a), length(closes_b))
       a = Enum.take(closes_a, -len)
       b = Enum.take(closes_b, -len)

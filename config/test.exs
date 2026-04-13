@@ -25,4 +25,5 @@ config :alpaca_trader,
   alpaca_base_url: "https://paper-api.alpaca.markets",
   alpaca_key_id: "test_key_id",
   alpaca_secret_key: "test_secret_key",
-  req_plug: {Req.Test, AlpacaTrader.Alpaca.Client}
+  req_plug: {Req.Test, AlpacaTrader.Alpaca.Client},
+  skip_startup_sync: true

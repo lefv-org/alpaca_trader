@@ -132,8 +132,8 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
   end
 
   defp check_pair(sym_a, sym_b) do
-    with {:ok, closes_a} <- BarsStore.get_closes(sym_a),
-         {:ok, closes_b} <- BarsStore.get_closes(sym_b) do
+    with {:ok, closes_a} <- BarsStore.get_closes_best(sym_a),
+         {:ok, closes_b} <- BarsStore.get_closes_best(sym_b) do
       len = min(length(closes_a), length(closes_b))
 
       if len >= 20 do

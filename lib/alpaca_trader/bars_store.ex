@@ -51,6 +51,17 @@ defmodule AlpacaTrader.BarsStore do
     end
   end
 
+  @doc """
+  Get closes for a symbol, preferring 1-minute bars (fresher) then falling back to daily bars.
+  Minute bars must have at least 20 points to be usable by SpreadCalculator.
+  """
+  def get_closes_best(symbol) do
+    case AlpacaTrader.MinuteBarCache.get_closes(symbol) do
+      {:ok, closes} when length(closes) >= 20 -> {:ok, closes}
+      _ -> get_closes(symbol)
+    end
+  end
+
   @doc "Count of symbols stored."
   def count do
     case :ets.info(@table) do

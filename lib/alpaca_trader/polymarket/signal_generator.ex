@@ -16,9 +16,9 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
 
   require Logger
 
-  @poll_interval_ms :timer.seconds(30)
-  @shift_threshold 0.10
-  @min_volume 5000
+  defp poll_interval_ms, do: Application.get_env(:alpaca_trader, :polymarket_poll_interval_ms, :timer.seconds(30))
+  defp shift_threshold,  do: Application.get_env(:alpaca_trader, :polymarket_shift_threshold, 0.10)
+  defp min_volume,       do: Application.get_env(:alpaca_trader, :polymarket_min_volume, 5_000)
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -61,7 +61,7 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
   end
 
   defp schedule_poll do
-    Process.send_after(self(), :poll, @poll_interval_ms)
+    Process.send_after(self(), :poll, poll_interval_ms())
   end
 
   defp poll_and_detect(state) do
@@ -72,7 +72,7 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
           events
           |> Enum.filter(fn e ->
             title = e["title"] || ""
-            MarketMapper.tradeable?(title) and (e["volume24hr"] || 0) > @min_volume
+            MarketMapper.tradeable?(title) and (e["volume24hr"] || 0) > min_volume()
           end)
 
         # Extract current probabilities
@@ -123,7 +123,7 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
         %{probability: prev_prob} when is_number(prev_prob) and is_number(curr.probability) ->
           shift = curr.probability - prev_prob
 
-          if abs(shift) >= @shift_threshold do
+          if abs(shift) >= shift_threshold() do
             symbols = MarketMapper.map_event(curr.title)
 
             Enum.map(symbols, fn {symbol, _type} ->

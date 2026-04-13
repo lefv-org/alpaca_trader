@@ -29,8 +29,8 @@ defmodule AlpacaTrader.Arbitrage.SubstituteDetector do
   end
 
   defp compute_signal(symbol_a, symbol_b) do
-    with {:ok, closes_a} <- BarsStore.get_closes(symbol_a),
-         {:ok, closes_b} <- BarsStore.get_closes(symbol_b) do
+    with {:ok, closes_a} <- BarsStore.get_closes_best(symbol_a),
+         {:ok, closes_b} <- BarsStore.get_closes_best(symbol_b) do
       # Align to same length (shorter series)
       len = min(length(closes_a), length(closes_b))
       a = Enum.take(closes_a, -len)

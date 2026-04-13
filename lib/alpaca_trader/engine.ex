@@ -5,7 +5,7 @@ defmodule AlpacaTrader.Engine do
 
   require Logger
 
-  alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships}
+  alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships, RotationEvaluator}
   alias AlpacaTrader.Arbitrage.SpreadCalculator
   alias AlpacaTrader.{BarsStore, PairPositionStore}
 
@@ -24,7 +24,7 @@ defmodule AlpacaTrader.Engine do
     defstruct [
       :result, :asset, :reason, :related_positions, :spread, :timestamp,
       :tier, :pair_asset, :direction, :hedge_ratio, :z_score,
-      :action
+      :action, :replaces
     ]
   end
 
@@ -37,9 +37,24 @@ defmodule AlpacaTrader.Engine do
 
   def execute_trade(%MarketContext{} = ctx, %{"side" => side} = params)
       when side in ["buy", "sell"] do
-    asset_class = get_in(ctx.asset, ["class"]) || "us_equity"
-    market_open? = get_in(ctx.clock, ["is_open"]) == true
-    tradable? = get_in(ctx.asset, ["tradable"]) == true
+    asset_class      = get_in(ctx.asset, ["class"]) || "us_equity"
+    market_open?     = get_in(ctx.clock, ["is_open"]) == true
+    tradable?        = get_in(ctx.asset, ["tradable"]) == true
+    fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
+    shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
+    buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
+    equity           = parse_float(get_in(ctx.account, ["equity"]))
+    notional         = params["notional"] && parse_float(params["notional"])
+    reserve_pct      = Application.get_env(:alpaca_trader, :portfolio_reserve_pct, 0.25)
+    reserve          = equity && equity * reserve_pct
+
+    held_qty =
+      (ctx.positions || [])
+      |> Enum.find(fn p -> p["symbol"] == ctx.symbol end)
+      |> case do
+        %{"qty" => q} -> parse_float(q)
+        _ -> 0.0
+      end
 
     cond do
       not tradable? ->
@@ -47,6 +62,16 @@ defmodule AlpacaTrader.Engine do
 
       asset_class != "crypto" and not market_open? ->
         hold(ctx.symbol, "market is closed")
+
+      side == "sell" and held_qty <= 0 and not shorting_enabled? ->
+        hold(ctx.symbol, "account does not support shorting")
+
+side == "buy" and notional != nil and buying_power != nil and reserve != nil and
+          (buying_power - notional) < reserve ->
+        hold(ctx.symbol, "portfolio reserve: $#{Float.round(buying_power - notional, 2)} remaining < $#{Float.round(reserve, 2)} (#{trunc(reserve_pct * 100)}% of $#{Float.round(equity, 2)})")
+
+      side == "buy" and notional != nil and not fractionable? ->
+        hold(ctx.symbol, "asset not fractionable, skipping notional order")
 
       true ->
         order_params = %{
@@ -56,11 +81,10 @@ defmodule AlpacaTrader.Engine do
           time_in_force: params["time_in_force"] || if(asset_class == "crypto", do: "gtc", else: "day")
         }
 
-        # Use notional (dollar amount) or qty
         order_params = cond do
           params["notional"] -> Map.put(order_params, :notional, params["notional"])
-          params["qty"] -> Map.put(order_params, :qty, params["qty"])
-          true -> Map.put(order_params, :qty, "1")
+          params["qty"]      -> Map.put(order_params, :qty, params["qty"])
+          true               -> Map.put(order_params, :qty, "1")
         end
 
         order_params = order_params
@@ -69,9 +93,13 @@ defmodule AlpacaTrader.Engine do
 
         case AlpacaTrader.Alpaca.Client.create_order(order_params) do
           {:ok, order} ->
+            action  = if(side == "buy", do: :bought, else: :sold)
+            emoji   = if side == "buy", do: "🟢", else: "🔴"
+            qty_str = if params["notional"], do: "$#{params["notional"]}", else: "qty=#{params["qty"]}"
+            Logger.info("[Trade] #{emoji} #{String.upcase(side)} #{ctx.symbol} #{qty_str} status=#{order["status"]}")
             {:ok,
              %PurchaseContext{
-               action: if(side == "buy", do: :bought, else: :sold),
+               action: action,
                symbol: ctx.symbol,
                reason: "order #{order["status"]}",
                qty: params["qty"] || params["notional"], side: side, order: order,
@@ -79,6 +107,7 @@ defmodule AlpacaTrader.Engine do
              }}
 
           {:error, err} ->
+            Logger.warning("[Trade] ⚠️  ORDER REJECTED #{ctx.symbol} side=#{side}: #{inspect(err) |> String.slice(0..80)}")
             hold(ctx.symbol, "order rejected: #{inspect(err)}")
         end
     end
@@ -89,12 +118,22 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp hold(symbol, reason) do
+    Logger.debug("[Trade] ⏸ HOLD #{symbol}: #{reason}")
     {:ok, %PurchaseContext{action: :hold, symbol: symbol, reason: reason, timestamp: DateTime.utc_now()}}
   end
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, val), do: Map.put(map, key, val)
+
+  defp parse_float(nil), do: nil
+  defp parse_float(s) when is_binary(s) do
+    case Float.parse(s) do
+      {f, _} -> f
+      :error -> nil
+    end
+  end
+  defp parse_float(n) when is_number(n), do: n * 1.0
 
   # ── is_in_arbitrage_position (position-aware) ─────────────
 
@@ -352,12 +391,12 @@ defmodule AlpacaTrader.Engine do
       :miss ->
         case try_tier_2(asset) do
           {:hit, arb} ->
-            {:ok, %ArbitragePosition{arb | related_positions: related, action: :enter}}
+            maybe_rotate(arb, related)
 
           :miss ->
             case try_tier_3(asset) do
               {:hit, arb} ->
-                {:ok, %ArbitragePosition{arb | related_positions: related, action: :enter}}
+                maybe_rotate(arb, related)
 
               :miss ->
                 {:ok,
@@ -369,6 +408,25 @@ defmodule AlpacaTrader.Engine do
                  }}
             end
         end
+    end
+  end
+
+  # One step of the graph relaxation spiral: check if this signal
+  # should displace a stale position or enter normally.
+  defp maybe_rotate(%ArbitragePosition{} = arb, related) do
+    open = PairPositionStore.open_positions()
+
+    case RotationEvaluator.evaluate(arb, open) do
+      {:rotate, victim} ->
+        Logger.info("[Rotation] 🔄 #{arb.asset} (z=#{arb.z_score}) displaces #{victim.asset_a}↔#{victim.asset_b} (stale)")
+        {:ok, %ArbitragePosition{arb | related_positions: related, action: :rotate, replaces: victim.id}}
+
+      :enter_normally ->
+        {:ok, %ArbitragePosition{arb | related_positions: related, action: :enter}}
+
+      :skip ->
+        {:ok, %{arb | related_positions: related, action: :hold,
+          result: false, reason: "signal weaker than all open positions (rotation skip)"}}
     end
   end
 
@@ -446,6 +504,7 @@ defmodule AlpacaTrader.Engine do
           :enter -> gate_and_enter(ctx, arb)
           :exit -> execute_exit(ctx, arb)
           :flip -> gate_and_flip(ctx, arb)
+          :rotate -> gate_and_rotate(ctx, arb)
           _ -> []
         end
       end)
@@ -473,10 +532,10 @@ defmodule AlpacaTrader.Engine do
 
       {:ok, %{conviction: c, reasoning: r}} ->
         Logger.info("[LLM Gate] CONFIRMED #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
-        execute_entry(ctx, arb)
+        if gain_allows_entry?(ctx), do: execute_entry(ctx, arb), else: []
 
       _ ->
-        execute_entry(ctx, arb)
+        if gain_allows_entry?(ctx), do: execute_entry(ctx, arb), else: []
     end
   end
 
@@ -493,11 +552,60 @@ defmodule AlpacaTrader.Engine do
 
       {:ok, %{conviction: c, reasoning: r}} ->
         Logger.info("[LLM Gate] CONFIRMED flip #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
-        execute_flip(ctx, arb)
+        if gain_allows_entry?(ctx), do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
 
       _ ->
-        execute_flip(ctx, arb)
+        if gain_allows_entry?(ctx), do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
     end
+  end
+
+  # ── ROTATION: LLM gate → close victim → enter new ──────────
+
+  defp gate_and_rotate(ctx, arb) do
+    case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
+      {:ok, %{decision: "suppress"}} ->
+        Logger.info("[LLM Gate] SUPPRESSED rotation #{arb.asset}")
+        []
+
+      {:ok, %{conviction: c}} when c < 0.3 ->
+        Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for rotation #{arb.asset}")
+        []
+
+      {:ok, %{conviction: c, reasoning: r}} ->
+        Logger.info("[LLM Gate] CONFIRMED rotation #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+        if gain_allows_entry?(ctx), do: execute_rotate(ctx, arb), else: []
+
+      _ ->
+        if gain_allows_entry?(ctx), do: execute_rotate(ctx, arb), else: []
+    end
+  end
+
+  defp execute_rotate(ctx, arb) do
+    # Step 1: Close the victim position (free the capital)
+    victim = case :ets.lookup(:pair_position_store, arb.replaces) do
+      [{_id, pos}] -> pos
+      [] -> nil
+    end
+
+    exit_trades = if victim do
+      victim_arb = %ArbitragePosition{
+        result: true, asset: victim.asset_a, pair_asset: victim.asset_b,
+        direction: victim.direction, tier: victim.tier, action: :exit,
+        reason: "ROTATED OUT: replaced by #{arb.asset}↔#{arb.pair_asset} (z=#{arb.z_score})",
+        z_score: victim.current_z_score, hedge_ratio: victim.entry_hedge_ratio,
+        timestamp: DateTime.utc_now()
+      }
+      Logger.info("[Rotation] 🔄 closing #{victim.asset_a}↔#{victim.asset_b} to free capital")
+      execute_exit(ctx, victim_arb)
+    else
+      []
+    end
+
+    # Step 2: Enter the new signal (same as normal entry)
+    Logger.info("[Rotation] 🔄 entering #{arb.asset}↔#{arb.pair_asset} z=#{arb.z_score}")
+    entry_trades = execute_entry(ctx, arb)
+
+    exit_trades ++ entry_trades
   end
 
   # ── ENTRY EXECUTION ────────────────────────────────────────
@@ -598,11 +706,11 @@ defmodule AlpacaTrader.Engine do
 
   # ── ORDER PARAMS BUILDERS ──────────────────────────────────
 
-  @order_notional "15"
+  defp order_notional, do: Application.get_env(:alpaca_trader, :order_notional, "10")
 
   defp build_entry_params(%ArbitragePosition{tier: 1} = arb) do
     %{"side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
-      "notional" => @order_notional, "type" => "market"}
+      "notional" => order_notional(), "type" => "market"}
   end
 
   defp build_entry_params(%ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
@@ -613,12 +721,12 @@ defmodule AlpacaTrader.Engine do
       end
 
     %{pair: true, legs: [
-      %{"symbol" => long_sym, "side" => "buy", "notional" => @order_notional, "type" => "market"},
-      %{"symbol" => short_sym, "side" => "sell", "notional" => @order_notional, "type" => "market"}
+      %{"symbol" => long_sym, "side" => "buy", "notional" => order_notional(), "type" => "market", "pair_leg" => true},
+      %{"symbol" => short_sym, "side" => "sell", "notional" => order_notional(), "type" => "market", "pair_leg" => true}
     ]}
   end
 
-  defp build_entry_params(_arb), do: %{"side" => "buy", "notional" => @order_notional, "type" => "market"}
+  defp build_entry_params(_arb), do: %{"side" => "buy", "notional" => order_notional(), "type" => "market"}
 
   defp build_exit_params(%ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     # Reverse the entry: sell what was bought, buy back what was shorted
@@ -629,16 +737,21 @@ defmodule AlpacaTrader.Engine do
       end
 
     %{pair: true, legs: [
-      %{"symbol" => sell_sym, "side" => "sell", "notional" => @order_notional, "type" => "market"},
-      %{"symbol" => buy_sym, "side" => "buy", "notional" => @order_notional, "type" => "market"}
+      %{"symbol" => sell_sym, "side" => "sell", "notional" => order_notional(), "type" => "market", "pair_leg" => true},
+      %{"symbol" => buy_sym, "side" => "buy", "notional" => order_notional(), "type" => "market", "pair_leg" => true}
     ]}
   end
 
   defp build_exit_params(arb) do
-    %{"side" => "sell", "notional" => @order_notional, "type" => "market", "symbol" => arb.asset}
+    %{"side" => "sell", "notional" => order_notional(), "type" => "market", "symbol" => arb.asset}
   end
 
   # ── HELPERS ────────────────────────────────────────────────
+
+  defp gain_allows_entry?(ctx) do
+    equity = parse_float(get_in(ctx.account, ["equity"]))
+    AlpacaTrader.GainAccumulatorStore.allow_entry?(equity)
+  end
 
   defp do_scan(ctx) do
     market_open? = get_in(ctx.clock, ["is_open"]) == true

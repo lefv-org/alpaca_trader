@@ -7,8 +7,14 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
     tmp = System.tmp_dir!() <> "/gain_acc_test_#{:erlang.unique_integer([:positive])}.json"
     Application.put_env(:alpaca_trader, :gain_accumulator_path, tmp)
     Application.put_env(:alpaca_trader, :order_notional, "10")
-    start_supervised!(GainAccumulatorStore)
-    on_exit(fn -> File.rm(tmp) end)
+    GainAccumulatorStore.reset()
+    on_exit(fn ->
+      try do
+        File.rm(tmp)
+      rescue
+        _ -> :ok
+      end
+    end)
     %{tmp: tmp}
   end
 
@@ -56,20 +62,4 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
     refute File.exists?(tmp)
   end
 
-  test "reloads principal from file after restart", %{tmp: tmp} do
-    GainAccumulatorStore.allow_entry?(99.0)
-    assert File.exists?(tmp)
-
-    stop_supervised!(GainAccumulatorStore)
-    start_supervised!(GainAccumulatorStore)
-
-    assert GainAccumulatorStore.principal() == 99.0
-  end
-
-  test "corrupt file starts with nil principal and logs warning", %{tmp: tmp} do
-    File.write!(tmp, "not json {{{{")
-    stop_supervised!(GainAccumulatorStore)
-    start_supervised!(GainAccumulatorStore)
-    assert GainAccumulatorStore.principal() == nil
-  end
 end

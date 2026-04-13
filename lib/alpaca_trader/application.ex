@@ -14,6 +14,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.AssetStore,
       AlpacaTrader.BarsStore,
       AlpacaTrader.PairPositionStore,
+      AlpacaTrader.GainAccumulatorStore,
       AlpacaTrader.LLM.OpinionGate,
       AlpacaTrader.MinuteBarCache,
       AlpacaTrader.Arbitrage.DiscoveryScanner,
@@ -25,6 +26,12 @@ defmodule AlpacaTrader.Application do
 
     opts = [strategy: :one_for_one, name: AlpacaTrader.Supervisor]
     result = Supervisor.start_link(children, opts)
+
+    # Warm stores before registering cron jobs so the first scan has data
+    unless Application.get_env(:alpaca_trader, :skip_startup_sync, false) do
+      AlpacaTrader.Scheduler.Jobs.AssetSyncJob.run()
+      Task.start(fn -> AlpacaTrader.Scheduler.Jobs.BarsSyncJob.run() end)
+    end
 
     register_jobs()
 

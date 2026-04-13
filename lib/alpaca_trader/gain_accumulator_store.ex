@@ -125,7 +125,10 @@ defmodule AlpacaTrader.GainAccumulatorStore do
         snapshot_time: DateTime.utc_now() |> DateTime.to_iso8601()
       })
 
-    File.write(file_path(), payload)
+    case File.write(file_path(), payload) do
+      :ok -> :ok
+      {:error, reason} -> Logger.error("[GainAccumulator] failed to persist principal: #{reason}")
+    end
   end
 
   defp parse_notional(n) when is_number(n), do: n * 1.0

@@ -8,7 +8,6 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
     Application.put_env(:alpaca_trader, :gain_accumulator_path, tmp)
     Application.put_env(:alpaca_trader, :order_notional, "10")
     start_supervised!(GainAccumulatorStore)
-    GainAccumulatorStore.reset()
     on_exit(fn -> File.rm(tmp) end)
     %{tmp: tmp}
   end

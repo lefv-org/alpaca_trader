@@ -542,8 +542,9 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
   defp gate_and_flip(ctx, arb) do
     case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
       {:ok, %{decision: "suppress"}} ->
-        Logger.info("[LLM Gate] SUPPRESSED flip #{arb.asset}")
-        []
+        # Suppressed flip → still close the position to avoid leaving it unmanaged
+        Logger.info("[LLM Gate] SUPPRESSED flip #{arb.asset}, exiting instead")
+        execute_exit(ctx, arb)
 
       {:ok, %{conviction: c}} when c < 0.3 ->
         # Low conviction on flip → just exit, don't reverse
@@ -573,6 +574,8 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
       {:ok, %{conviction: c, reasoning: r}} ->
         Logger.info("[LLM Gate] CONFIRMED rotation #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+        # Gain gate blocks: skip the whole rotation (don't close victim, don't open new).
+        # Victim stays open; a future scan will re-evaluate it independently.
         if gain_allows_entry?(ctx), do: execute_rotate(ctx, arb), else: []
 
       _ ->

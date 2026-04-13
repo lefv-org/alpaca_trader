@@ -64,30 +64,30 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   defp call_with_failover(arb, ctx) do
     all_providers = [
-      {:mlx, &call_openai_compatible/4,
+      {:mlx, &call_openai_compatible/5,
         Application.get_env(:alpaca_trader, :llm_base_url, "http://localhost:8080"),
-        Application.get_env(:alpaca_trader, :llm_model, "mlx-community/Ministral-3-8B-Instruct-2512-4bit"),
-        nil},
-      {:ollama, &call_openai_compatible/4,
+        Application.get_env(:alpaca_trader, :llm_model, "mlx-community/Phi-3.5-mini-instruct-4bit"),
+        nil, 8_000},
+      {:ollama, &call_openai_compatible/5,
         Application.get_env(:alpaca_trader, :ollama_base_url, "https://ollama.lefv.info"),
         Application.get_env(:alpaca_trader, :ollama_model, "qwen3:8b"),
-        Application.get_env(:alpaca_trader, :ollama_api_key, System.get_env("OLLAMA_API_KEY"))},
-      {:anthropic, &call_anthropic/4,
+        Application.get_env(:alpaca_trader, :ollama_api_key, System.get_env("OLLAMA_API_KEY")), 10_000},
+      {:anthropic, &call_anthropic/5,
         Application.get_env(:alpaca_trader, :anthropic_base_url, "https://api.anthropic.com"),
-        Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20250501"),
-        Application.get_env(:alpaca_trader, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY"))}
+        Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20251001"),
+        Application.get_env(:alpaca_trader, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")), 10_000}
     ]
 
     providers = case Application.get_env(:alpaca_trader, :llm_provider) do
       nil -> all_providers
-      name -> Enum.filter(all_providers, fn {p, _, _, _, _} -> Atom.to_string(p) == name end)
+      name -> Enum.filter(all_providers, fn {p, _, _, _, _, _} -> Atom.to_string(p) == name end)
     end
 
     prompt = build_prompt(arb, ctx)
 
-    Enum.reduce_while(providers, fallback(), fn {name, call_fn, url, model, key}, _acc ->
+    Enum.reduce_while(providers, fallback(), fn {name, call_fn, url, model, key, timeout}, _acc ->
       try do
-        case call_fn.(url, model, key, prompt) do
+        case call_fn.(url, model, key, prompt, timeout) do
           %{decision: _} = opinion ->
             Logger.info("[LLM Gate] #{name}: #{opinion.decision} conviction=#{opinion.conviction}")
             {:halt, opinion}
@@ -110,7 +110,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   # ── OpenAI-Compatible (MLX, Ollama) ────────────────────────
 
-  defp call_openai_compatible(base_url, model, api_key, prompt) do
+  defp call_openai_compatible(base_url, model, api_key, prompt, timeout) do
     headers = [{"content-type", "application/json"}]
     headers = if api_key, do: [{"authorization", "Bearer #{api_key}"} | headers], else: headers
 
@@ -124,7 +124,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
       ]
     }
 
-    case Req.post("#{base_url}/v1/chat/completions", json: body, headers: headers, receive_timeout: 15_000, retry: false) do
+    case Req.post("#{base_url}/v1/chat/completions", json: body, headers: headers, receive_timeout: timeout, retry: false) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
         result = parse_opinion(text)
         if result == nil do
@@ -137,7 +137,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
         nil
 
       {:error, %{reason: :timeout}} ->
-        Logger.warning("[LLM Gate] TIMEOUT (8s)")
+        Logger.warning("[LLM Gate] TIMEOUT (#{div(timeout, 1000)}s)")
         nil
 
       {:error, reason} ->
@@ -152,9 +152,9 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   # ── Anthropic Claude ───────────────────────────────────────
 
-  defp call_anthropic(_base_url, _model, nil, _prompt), do: nil
+  defp call_anthropic(_base_url, _model, nil, _prompt, _timeout), do: nil
 
-  defp call_anthropic(base_url, model, api_key, prompt) do
+  defp call_anthropic(base_url, model, api_key, prompt, timeout) do
     body = %{
       model: model,
       max_tokens: 300,
@@ -165,11 +165,18 @@ defmodule AlpacaTrader.LLM.OpinionGate do
     case Req.post("#{base_url}/v1/messages",
       json: body,
       headers: [{"x-api-key", api_key}, {"anthropic-version", "2023-06-01"}, {"content-type", "application/json"}],
-      receive_timeout: 10_000
+      receive_timeout: timeout
     ) do
       {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
         parse_opinion(text)
-      _ -> nil
+
+      {:ok, %{status: status, body: body}} ->
+        Logger.warning("[LLM Gate] Anthropic HTTP #{status}: #{inspect(body) |> String.slice(0..200)}")
+        nil
+
+      {:error, reason} ->
+        Logger.warning("[LLM Gate] Anthropic ERROR: #{inspect(reason) |> String.slice(0..80)}")
+        nil
     end
   end
 

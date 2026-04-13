@@ -98,14 +98,14 @@ if config_env() != :test do
     allow_short_selling: System.get_env("ALLOW_SHORT_SELLING", "false") == "true",
     # LLM provider selection: pin to one provider or nil for failover chain (mlx → ollama → anthropic)
     llm_provider: System.get_env("LLM_PROVIDER"),
-    llm_base_url: System.get_env("LLM_BASE_URL", "http://localhost:8081"),
-    llm_model: System.get_env("LLM_MODEL", "mlx-community/Ministral-3-8B-Instruct-2512-4bit"),
+    llm_base_url: System.get_env("LLM_BASE_URL", "http://localhost:8080"),
+    llm_model: System.get_env("LLM_MODEL", "mlx-community/Phi-3.5-mini-instruct-4bit"),
     ollama_base_url: System.get_env("OLLAMA_BASE_URL", "https://ollama.lefv.info"),
     ollama_model: System.get_env("OLLAMA_MODEL", "qwen3:8b"),
     ollama_api_key: System.get_env("OLLAMA_API_KEY"),
     anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
     anthropic_base_url: System.get_env("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-    anthropic_model: System.get_env("ANTHROPIC_MODEL", "claude-haiku-4-5-20250501"),
+    anthropic_model: System.get_env("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
     # Polymarket signal feed
     polymarket_gamma_url: System.get_env("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com"),
     polymarket_clob_url: System.get_env("POLYMARKET_CLOB_URL", "https://clob.polymarket.com"),

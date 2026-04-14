@@ -1,0 +1,66 @@
+- generic [ref=e3]:
+  - generic [ref=e5]: Alpaca Trader
+  - generic [ref=e6]:
+    - button "dashboard" [ref=e7]
+    - button "account" [ref=e8]
+    - button "orders" [ref=e9]
+    - button "positions" [ref=e10]
+    - button "assets" [ref=e11]
+    - button "watchlists" [ref=e12]
+    - button "market" [ref=e13]
+    - button "engine" [ref=e14]
+  - generic [ref=e16]:
+    - heading "Trade Engine" [level=2] [ref=e22]
+    - generic [ref=e23]:
+      - generic [ref=e24]: Execute Trade
+      - paragraph [ref=e25]:
+        - text: Gathers account, positions, clock, and asset data into a MarketContext, passes it to
+        - code [ref=e26]: execute_trade/1
+        - text: ", and returns the PurchaseContext."
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: symbol
+          - textbox "AAPL" [ref=e30]
+        - button "Execute" [active] [ref=e31]
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]: MarketContext (input)
+        - group [ref=e36]:
+          - text: "{8 keys} {"
+          - generic [ref=e37]:
+            - generic [ref=e38]: "\"position\": null,"
+            - generic [ref=e39]: "\"symbol\": \"AAPL\","
+            - generic [ref=e40]:
+              - text: "\"account\":"
+              - group [ref=e41]: "{41 keys} { }"
+              - text: ","
+            - generic [ref=e42]:
+              - text: "\"orders\":"
+              - group [ref=e43]: Array(10) [ ]
+              - text: ","
+            - generic [ref=e44]:
+              - text: "\"positions\":"
+              - group [ref=e45]: Array(13) [ ]
+              - text: ","
+            - generic [ref=e46]:
+              - text: "\"asset\":"
+              - group [ref=e47]: "{15 keys} { }"
+              - text: ","
+            - generic [ref=e48]: "\"bars\": null,"
+            - generic [ref=e49]:
+              - text: "\"clock\":"
+              - group [ref=e50]: "{4 keys} { }"
+          - text: "}"
+      - generic [ref=e51]:
+        - generic [ref=e52]: PurchaseContext (output)
+        - group [ref=e54]:
+          - text: "{7 keys} {"
+          - generic [ref=e55]:
+            - generic [ref=e56]: "\"reason\": \"no strategy configured\","
+            - generic [ref=e57]: "\"timestamp\": \"2026-04-11T11:45:49.248789Z\","
+            - generic [ref=e58]: "\"symbol\": \"AAPL\","
+            - generic [ref=e59]: "\"action\": \"hold\","
+            - generic [ref=e60]: "\"order\": null,"
+            - generic [ref=e61]: "\"qty\": null,"
+            - generic [ref=e62]: "\"side\": null"
+          - text: "}"

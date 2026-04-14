@@ -1,11 +1,16 @@
 defmodule AlpacaTrader.LLM.OpinionGate do
   @moduledoc """
-  LLM conviction gate with provider failover chain:
-  1. Local MLX (Ministral) — fastest, ~200ms
-  2. Ollama (ollama.lefv.info) — fast, ~500ms
-  3. Anthropic Claude — reliable, ~2s
+  LLM conviction gate with configurable provider failover chain.
 
-  Falls back through the chain on failure.
+  Enable providers via env vars (tried in order when multiple are enabled):
+  - LLM_USE_MLX=true       — local MLX server, ~200ms
+  - LLM_USE_OLLAMA=true    — remote Ollama, ~500ms
+  - LLM_USE_CEREBRAS=true   — Cerebras free tier, ~80ms
+  - LLM_USE_OPENROUTER=true — OpenRouter free models, ~1s
+  - LLM_USE_ANTHROPIC=true  — Anthropic Claude, ~2s
+
+  Falls back through enabled providers on failure.
+  Returns 0.5 conviction fallback if no providers are enabled or all fail.
   """
 
   use GenServer
@@ -63,24 +68,40 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   # ── Provider Failover Chain ────────────────────────────────
 
   defp call_with_failover(arb, ctx) do
-    all_providers = [
-      {:mlx, &call_openai_compatible/5,
-        Application.get_env(:alpaca_trader, :llm_base_url, "http://localhost:8080"),
-        Application.get_env(:alpaca_trader, :llm_model, "mlx-community/Phi-3.5-mini-instruct-4bit"),
-        nil, 8_000},
-      {:ollama, &call_openai_compatible/5,
-        Application.get_env(:alpaca_trader, :ollama_base_url, "https://ollama.lefv.info"),
-        Application.get_env(:alpaca_trader, :ollama_model, "qwen3:8b"),
-        Application.get_env(:alpaca_trader, :ollama_api_key, System.get_env("OLLAMA_API_KEY")), 10_000},
-      {:anthropic, &call_anthropic/5,
-        Application.get_env(:alpaca_trader, :anthropic_base_url, "https://api.anthropic.com"),
-        Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20251001"),
-        Application.get_env(:alpaca_trader, :anthropic_api_key, System.get_env("ANTHROPIC_API_KEY")), 10_000}
-    ]
+    providers =
+      [
+        {Application.get_env(:alpaca_trader, :llm_use_mlx, false),
+         {:mlx, &call_openai_compatible/5,
+           Application.get_env(:alpaca_trader, :llm_base_url, "http://localhost:8080"),
+           Application.get_env(:alpaca_trader, :llm_model, "mlx-community/Phi-3.5-mini-instruct-4bit"),
+           nil, 8_000}},
+        {Application.get_env(:alpaca_trader, :llm_use_ollama, false),
+         {:ollama, &call_openai_compatible/5,
+           Application.get_env(:alpaca_trader, :ollama_base_url, "https://ollama.lefv.info"),
+           Application.get_env(:alpaca_trader, :ollama_model, "qwen3:8b"),
+           Application.get_env(:alpaca_trader, :ollama_api_key),
+           Application.get_env(:alpaca_trader, :ollama_timeout_ms, 30_000)}},
+        {Application.get_env(:alpaca_trader, :llm_use_cerebras, false),
+         {:cerebras, &call_openai_compatible/5,
+           Application.get_env(:alpaca_trader, :cerebras_base_url, "https://api.cerebras.ai"),
+           Application.get_env(:alpaca_trader, :cerebras_model, "llama3.1-8b"),
+           Application.get_env(:alpaca_trader, :cerebras_api_key), 10_000}},
+        {Application.get_env(:alpaca_trader, :llm_use_openrouter, false),
+         {:openrouter, &call_openai_compatible/5,
+           Application.get_env(:alpaca_trader, :openrouter_base_url, "https://openrouter.ai/api"),
+           Application.get_env(:alpaca_trader, :openrouter_model, "meta-llama/llama-3.3-70b-instruct:free"),
+           Application.get_env(:alpaca_trader, :openrouter_api_key), 15_000}},
+        {Application.get_env(:alpaca_trader, :llm_use_anthropic, false),
+         {:anthropic, &call_anthropic/5,
+           Application.get_env(:alpaca_trader, :anthropic_base_url, "https://api.anthropic.com"),
+           Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20251001"),
+           Application.get_env(:alpaca_trader, :anthropic_api_key), 10_000}}
+      ]
+      |> Enum.filter(fn {enabled, _} -> enabled end)
+      |> Enum.map(fn {_, provider} -> provider end)
 
-    providers = case Application.get_env(:alpaca_trader, :llm_provider) do
-      nil -> all_providers
-      name -> Enum.filter(all_providers, fn {p, _, _, _, _, _} -> Atom.to_string(p) == name end)
+    if providers == [] do
+      Logger.warning("[LLM Gate] no providers enabled — set LLM_USE_MLX, LLM_USE_OLLAMA, or LLM_USE_ANTHROPIC")
     end
 
     prompt = build_prompt(arb, ctx)
@@ -204,7 +225,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
     # Try full JSON parse first
     result = case Jason.decode(cleaned) do
       {:ok, %{"decision" => d, "conviction" => c}} when is_number(c) ->
-        %{decision: d, conviction: min(max(c, 0.0), 1.0),
+        %{decision: d, conviction: min(max(c * 1.0, 0.0), 1.0),
           reasoning: "", risk_flags: []}
       _ -> nil
     end

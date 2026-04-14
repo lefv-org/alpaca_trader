@@ -92,20 +92,39 @@ if config_env() != :test do
     alpaca_key_id: System.fetch_env!("ALPACA_KEY_ID"),
     alpaca_secret_key: System.fetch_env!("ALPACA_SECRET_KEY"),
     # Order sizing and portfolio risk
-    order_notional: System.get_env("ORDER_NOTIONAL", "10"),
+    # Trade size as a fraction of equity (0.001 = 0.1% of equity per trade)
+    order_notional_pct: String.to_float(System.get_env("ORDER_NOTIONAL_PCT", "0.001")),
+    # Round-trip fee rate (crypto ~0.30% = 0.003, equities = 0)
+    trade_fee_rate: String.to_float(System.get_env("TRADE_FEE_RATE", "0.003")),
     gain_accumulator_path: System.get_env("GAIN_ACCUMULATOR_PATH", "priv/gain_accumulator.json"),
     portfolio_reserve_pct: String.to_float(System.get_env("PORTFOLIO_RESERVE_PCT", "0.25")),
     allow_short_selling: System.get_env("ALLOW_SHORT_SELLING", "false") == "true",
-    # LLM provider selection: pin to one provider or nil for failover chain (mlx → ollama → anthropic)
-    llm_provider: System.get_env("LLM_PROVIDER"),
+    # LLM provider toggles: enable/disable each provider in the failover chain
+    llm_use_mlx: System.get_env("LLM_USE_MLX", "false") == "true",
+    llm_use_ollama: System.get_env("LLM_USE_OLLAMA", "false") == "true",
+    llm_use_anthropic: System.get_env("LLM_USE_ANTHROPIC", "false") == "true",
+    # MLX (local)
     llm_base_url: System.get_env("LLM_BASE_URL", "http://localhost:8080"),
     llm_model: System.get_env("LLM_MODEL", "mlx-community/Phi-3.5-mini-instruct-4bit"),
+    # Ollama (remote)
     ollama_base_url: System.get_env("OLLAMA_BASE_URL", "https://ollama.lefv.info"),
     ollama_model: System.get_env("OLLAMA_MODEL", "qwen3:8b"),
     ollama_api_key: System.get_env("OLLAMA_API_KEY"),
+    ollama_timeout_ms: String.to_integer(System.get_env("OLLAMA_TIMEOUT_MS", "30000")),
+    # Cerebras (free cloud)
+    llm_use_cerebras: System.get_env("LLM_USE_CEREBRAS", "false") == "true",
+    cerebras_base_url: System.get_env("CEREBRAS_BASE_URL", "https://api.cerebras.ai"),
+    cerebras_model: System.get_env("CEREBRAS_MODEL", "llama3.1-8b"),
+    cerebras_api_key: System.get_env("CEREBRAS_API_KEY"),
+    # OpenRouter (free cloud)
+    llm_use_openrouter: System.get_env("LLM_USE_OPENROUTER", "false") == "true",
+    openrouter_base_url: System.get_env("OPENROUTER_BASE_URL", "https://openrouter.ai/api"),
+    openrouter_model: System.get_env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+    openrouter_api_key: System.get_env("OPENROUTER_API_KEY"),
+    # Anthropic (cloud)
     anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
     anthropic_base_url: System.get_env("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
-    anthropic_model: System.get_env("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+    anthropic_model: System.get_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
     # Polymarket signal feed
     polymarket_gamma_url: System.get_env("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com"),
     polymarket_clob_url: System.get_env("POLYMARKET_CLOB_URL", "https://clob.polymarket.com"),

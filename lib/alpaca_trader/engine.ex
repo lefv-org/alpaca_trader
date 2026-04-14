@@ -614,7 +614,7 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
   # ── ENTRY EXECUTION ────────────────────────────────────────
 
   defp execute_entry(ctx, arb) do
-    order_params = build_entry_params(arb)
+    order_params = build_entry_params(ctx, arb)
 
     trades =
       case order_params do
@@ -652,7 +652,7 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
   defp execute_exit(ctx, arb) do
     # Close the position: reverse the original direction
-    exit_params = build_exit_params(arb)
+    exit_params = build_exit_params(ctx, arb)
 
     trades =
       case exit_params do
@@ -709,29 +709,36 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
   # ── ORDER PARAMS BUILDERS ──────────────────────────────────
 
-  defp order_notional, do: Application.get_env(:alpaca_trader, :order_notional, "10")
-
-  defp build_entry_params(%ArbitragePosition{tier: 1} = arb) do
-    %{"side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
-      "notional" => order_notional(), "type" => "market"}
+  defp order_notional(ctx) do
+    equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
+    pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
+    notional = Float.round(equity * pct, 2)
+    # Alpaca minimum notional is $1
+    to_string(max(notional, 1.0))
   end
 
-  defp build_entry_params(%ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
+  defp build_entry_params(ctx, %ArbitragePosition{tier: 1} = arb) do
+    %{"side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
+      "notional" => order_notional(ctx), "type" => "market"}
+  end
+
+  defp build_entry_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     {long_sym, short_sym} =
       case arb.direction do
         :long_a_short_b -> {arb.asset, arb.pair_asset}
         :long_b_short_a -> {arb.pair_asset, arb.asset}
       end
 
+    notional = order_notional(ctx)
     %{pair: true, legs: [
-      %{"symbol" => long_sym, "side" => "buy", "notional" => order_notional(), "type" => "market", "pair_leg" => true},
-      %{"symbol" => short_sym, "side" => "sell", "notional" => order_notional(), "type" => "market", "pair_leg" => true}
+      %{"symbol" => long_sym, "side" => "buy", "notional" => notional, "type" => "market", "pair_leg" => true},
+      %{"symbol" => short_sym, "side" => "sell", "notional" => notional, "type" => "market", "pair_leg" => true}
     ]}
   end
 
-  defp build_entry_params(_arb), do: %{"side" => "buy", "notional" => order_notional(), "type" => "market"}
+  defp build_entry_params(ctx, _arb), do: %{"side" => "buy", "notional" => order_notional(ctx), "type" => "market"}
 
-  defp build_exit_params(%ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
+  defp build_exit_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     # Reverse the entry: sell what was bought, buy back what was shorted
     {sell_sym, buy_sym} =
       case arb.direction do
@@ -739,14 +746,15 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
         :long_b_short_a -> {arb.pair_asset, arb.asset}
       end
 
+    notional = order_notional(ctx)
     %{pair: true, legs: [
-      %{"symbol" => sell_sym, "side" => "sell", "notional" => order_notional(), "type" => "market", "pair_leg" => true},
-      %{"symbol" => buy_sym, "side" => "buy", "notional" => order_notional(), "type" => "market", "pair_leg" => true}
+      %{"symbol" => sell_sym, "side" => "sell", "notional" => notional, "type" => "market", "pair_leg" => true},
+      %{"symbol" => buy_sym, "side" => "buy", "notional" => notional, "type" => "market", "pair_leg" => true}
     ]}
   end
 
-  defp build_exit_params(arb) do
-    %{"side" => "sell", "notional" => order_notional(), "type" => "market", "symbol" => arb.asset}
+  defp build_exit_params(ctx, arb) do
+    %{"side" => "sell", "notional" => order_notional(ctx), "type" => "market", "symbol" => arb.asset}
   end
 
   # ── HELPERS ────────────────────────────────────────────────

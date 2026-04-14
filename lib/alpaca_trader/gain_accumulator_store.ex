@@ -1,8 +1,12 @@
 defmodule AlpacaTrader.GainAccumulatorStore do
   @moduledoc """
   Tracks original principal from first-boot equity snapshot.
-  Gates new trade entries: allows entry only when equity - principal >= ORDER_NOTIONAL.
-  Principal persists to a JSON file across restarts.
+  Gates new entries: blocks only when equity has dropped below principal by more
+  than one trade's round-trip fees. This prevents runaway losses while allowing
+  normal trading from a standing start.
+
+  Loss tolerance = equity * ORDER_NOTIONAL_PCT * TRADE_FEE_RATE
+  Principal persists to a JSON file (tagged by account) across restarts.
   """
 
   use GenServer
@@ -13,8 +17,8 @@ defmodule AlpacaTrader.GainAccumulatorStore do
   end
 
   @doc """
-  Returns true only when equity - principal >= order_notional.
-  On first call (principal nil), snapshots equity, writes file, returns false.
+  Returns true unless equity has dropped below principal by more than one
+  trade's fees. On first call (principal nil), snapshots equity and allows entry.
   Returns false for nil equity.
   """
   def allow_entry?(nil), do: false
@@ -45,40 +49,32 @@ defmodule AlpacaTrader.GainAccumulatorStore do
 
   @impl true
   def init(_) do
-    state =
-      case load_from_file() do
-        {:ok, principal} ->
-          Logger.info("[GainAccumulator] loaded principal=$#{Float.round(principal, 2)}")
-          %{principal: principal}
-
-        {:error, :not_found} ->
-          %{principal: nil}
-
-        {:error, reason} ->
-          Logger.warning("[GainAccumulator] could not load file (#{reason}), starting fresh")
-          %{principal: nil}
-      end
-
-    {:ok, state}
+    # Always start with nil principal — snapshot fresh on first trade check.
+    # This ensures we gate against losses during THIS run, not historical ones.
+    {:ok, %{principal: nil}}
   end
 
   @impl true
   def handle_call({:allow_entry, equity}, _from, %{principal: nil} = state) do
     new_state = %{state | principal: equity}
     persist(equity)
-    Logger.info("[GainAccumulator] 📸 principal=$#{Float.round(equity, 2)} established")
-    {:reply, false, new_state}
+    Logger.info("[GainAccumulator] 📸 principal=$#{Float.round(equity * 1.0, 2)} established — trading enabled")
+    {:reply, true, new_state}
   end
 
   def handle_call({:allow_entry, equity}, _from, %{principal: principal} = state) do
-    notional = parse_notional(Application.get_env(:alpaca_trader, :order_notional, "10"))
+    notional_pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
+    fee_rate = Application.get_env(:alpaca_trader, :trade_fee_rate, 0.003)
+    fee_tolerance = equity * notional_pct * fee_rate
     gain = equity - principal
 
-    if gain >= notional do
-      Logger.info("[GainAccumulator] ✅ gain=$#{Float.round(gain, 2)} >= $#{notional} — entry allowed")
+    persist_session(principal, equity)
+
+    if gain >= -fee_tolerance do
+      Logger.info("[GainAccumulator] ✅ gain=$#{Float.round(gain, 2)} (tolerance=$#{Float.round(fee_tolerance, 4)}) — entry allowed")
       {:reply, true, state}
     else
-      Logger.debug("[GainAccumulator] 🔒 gain=$#{Float.round(gain, 2)} < $#{notional} — entry blocked")
+      Logger.debug("[GainAccumulator] 🔒 gain=$#{Float.round(gain, 2)} exceeds loss tolerance=$#{Float.round(fee_tolerance, 4)} — entry blocked")
       {:reply, false, state}
     end
   end
@@ -100,43 +96,28 @@ defmodule AlpacaTrader.GainAccumulatorStore do
     Application.get_env(:alpaca_trader, :gain_accumulator_path, "priv/gain_accumulator.json")
   end
 
-  defp load_from_file do
-    path = file_path()
-
-    case File.read(path) do
-      {:error, :enoent} ->
-        {:error, :not_found}
-
-      {:error, reason} ->
-        {:error, reason}
-
-      {:ok, contents} ->
-        case Jason.decode(contents) do
-          {:ok, %{"principal" => p}} when is_number(p) -> {:ok, p * 1.0}
-          _ -> {:error, :invalid_json}
-        end
-    end
+  defp persist(principal) do
+    persist_session(principal, principal)
   end
 
-  defp persist(principal) do
+  defp persist_session(principal, equity) do
     payload =
       Jason.encode!(%{
         principal: principal,
+        equity: equity,
+        gain: Float.round((equity - principal) * 1.0, 2),
+        account_env: account_env(),
         snapshot_time: DateTime.utc_now() |> DateTime.to_iso8601()
       })
 
     case File.write(file_path(), payload) do
       :ok -> :ok
-      {:error, reason} -> Logger.error("[GainAccumulator] failed to persist principal: #{reason}")
+      {:error, reason} -> Logger.error("[GainAccumulator] failed to persist session: #{reason}")
     end
   end
 
-  defp parse_notional(n) when is_number(n), do: n * 1.0
-
-  defp parse_notional(s) when is_binary(s) do
-    case Float.parse(s) do
-      {f, _} -> f
-      :error -> 10.0
-    end
+  defp account_env do
+    Application.get_env(:alpaca_trader, :alpaca_base_url, "unknown")
   end
+
 end

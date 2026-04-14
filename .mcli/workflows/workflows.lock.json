@@ -1,0 +1,45 @@
+{
+  "version": "2.0",
+  "generated_at": "2026-04-12T13:09:37.331796Z",
+  "commands": {
+    "trade": {
+      "file": "trade.sh",
+      "language": "shell",
+      "content_hash": "sha256:ebdf32f1a6e2cbecf2c69fa3ab25ec1c87596bb316a1bbdd4cce948c7ed1d359",
+      "version": "1.0.0",
+      "group": "workflows",
+      "description": "Trade command",
+      "author": "",
+      "requires": [],
+      "tags": [],
+      "shell": "bash",
+      "last_modified": "2026-04-12T15:09:37.331644Z"
+    },
+    "watch_assets": {
+      "file": "watch_assets.sh",
+      "language": "shell",
+      "content_hash": "sha256:2b76999b82b6d76a3b1c8916564defd1ffadc34403e26a709d113ba645dca9cc",
+      "version": "1.0.0",
+      "group": "workflows",
+      "description": "Watch the AssetSyncJob cron \u2014 displays tradeable assets from the Alpaca API",
+      "author": "",
+      "requires": [],
+      "tags": [],
+      "shell": "bash",
+      "last_modified": "2026-04-11T16:11:26.177490Z"
+    },
+    "watch_llm": {
+      "file": "watch_llm.sh",
+      "language": "shell",
+      "content_hash": "sha256:c4566f60179401b56819128e1dc2031b3a4c54f71a54d8e5af0cb6166910de35",
+      "version": "1.0.0",
+      "group": "workflows",
+      "description": "Watch LLM opinion gate logs in real time",
+      "author": "",
+      "requires": [],
+      "tags": [],
+      "shell": "bash",
+      "last_modified": "2026-04-12T13:26:27.931849Z"
+    }
+  }
+}

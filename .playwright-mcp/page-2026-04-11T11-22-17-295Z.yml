@@ -1,0 +1,24 @@
+- generic [ref=e3]:
+  - generic [ref=e5]: Alpaca Trader
+  - generic [ref=e6]:
+    - button "dashboard" [ref=e7]
+    - button "account" [ref=e8]
+    - button "orders" [ref=e9]
+    - button "positions" [ref=e10]
+    - button "assets" [ref=e11]
+    - button "watchlists" [ref=e12]
+    - button "market" [ref=e13]
+    - button "engine" [active] [ref=e14]
+  - generic [ref=e16]:
+    - heading "Trade Engine" [level=2] [ref=e22]
+    - generic [ref=e23]:
+      - generic [ref=e24]: Execute Trade
+      - paragraph [ref=e25]:
+        - text: Gathers account, positions, clock, and asset data into a MarketContext, passes it to
+        - code [ref=e26]: execute_trade/1
+        - text: ", and returns the PurchaseContext."
+      - generic [ref=e27]:
+        - generic [ref=e28]:
+          - generic [ref=e29]: symbol
+          - textbox "AAPL" [ref=e30]
+        - button "Execute" [ref=e31]

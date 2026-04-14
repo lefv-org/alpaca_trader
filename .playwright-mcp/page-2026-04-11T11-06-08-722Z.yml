@@ -1,0 +1,16 @@
+- generic [ref=e3]:
+  - generic [ref=e5]: Alpaca Trader
+  - generic [ref=e6]:
+    - button "dashboard" [ref=e7]
+    - button "account" [ref=e8]
+    - button "orders" [ref=e9]
+    - button "positions" [ref=e10]
+    - button "assets" [ref=e11]
+    - button "watchlists" [ref=e12]
+    - button "market" [ref=e13]
+    - button "engine" [ref=e14]
+  - generic [ref=e16]:
+    - generic [ref=e17]:
+      - heading "Dashboard" [level=2] [ref=e18]
+      - button "Refresh" [ref=e20]
+    - generic [ref=e21]: Loading…

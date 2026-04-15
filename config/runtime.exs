@@ -130,5 +130,19 @@ if config_env() != :test do
     polymarket_clob_url: System.get_env("POLYMARKET_CLOB_URL", "https://clob.polymarket.com"),
     polymarket_poll_interval_ms: String.to_integer(System.get_env("POLYMARKET_POLL_INTERVAL_S", "30")) * 1000,
     polymarket_shift_threshold: String.to_float(System.get_env("POLYMARKET_SHIFT_THRESHOLD", "0.10")),
-    polymarket_min_volume: String.to_integer(System.get_env("POLYMARKET_MIN_VOLUME", "5000"))
+    polymarket_min_volume: String.to_integer(System.get_env("POLYMARKET_MIN_VOLUME", "5000")),
+    # Alternative data providers
+    alt_data_fred_enabled: System.get_env("ALT_DATA_FRED_ENABLED", "true") == "true",
+    alt_data_open_meteo_enabled: System.get_env("ALT_DATA_OPEN_METEO_ENABLED", "true") == "true",
+    alt_data_opensky_enabled: System.get_env("ALT_DATA_OPENSKY_ENABLED", "true") == "true",
+    alt_data_nasa_firms_enabled: System.get_env("ALT_DATA_NASA_FIRMS_ENABLED", "false") == "true",
+    alt_data_nws_enabled: System.get_env("ALT_DATA_NWS_ENABLED", "true") == "true",
+    alt_data_finnhub_enabled: System.get_env("ALT_DATA_FINNHUB_ENABLED", "false") == "true",
+    fred_api_key: System.get_env("FRED_API_KEY", "DEMO_KEY"),
+    nasa_firms_map_key: System.get_env("NASA_FIRMS_MAP_KEY"),
+    finnhub_api_key: System.get_env("FINNHUB_API_KEY"),
+    alt_data_opensky_poll_s: String.to_integer(System.get_env("ALT_DATA_OPENSKY_POLL_S", "900")),
+    alt_data_finnhub_poll_s: String.to_integer(System.get_env("ALT_DATA_FINNHUB_POLL_S", "300")),
+    alt_data_suppress_threshold: String.to_float(System.get_env("ALT_DATA_SUPPRESS_THRESHOLD", "0.6")),
+    alt_data_entry_threshold: String.to_float(System.get_env("ALT_DATA_ENTRY_THRESHOLD", "0.65"))
 end

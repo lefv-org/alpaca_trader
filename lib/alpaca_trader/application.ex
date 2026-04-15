@@ -20,6 +20,8 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.Arbitrage.DiscoveryScanner,
       AlpacaTrader.Arbitrage.PairBuilder,
       AlpacaTrader.Polymarket.SignalGenerator,
+      AlpacaTrader.AltData.SignalStore,
+      AlpacaTrader.AltData.Supervisor,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]

@@ -738,6 +738,10 @@ defmodule AlpacaTrader.Engine do
       not gain_allows_entry?(ctx) ->
         []
 
+      alt_data_suppressed?(arb.asset) ->
+        Logger.info("[AltData] suppressing entry on #{arb.asset}: bearish/risk-off signal active")
+        []
+
       true ->
         case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
           {:ok, %{decision: "suppress"}} ->
@@ -756,6 +760,13 @@ defmodule AlpacaTrader.Engine do
             execute_entry(ctx, arb)
         end
     end
+  end
+
+  defp alt_data_suppressed?(asset) do
+    threshold = Application.get_env(:alpaca_trader, :alt_data_suppress_threshold, 0.6)
+
+    AlpacaTrader.AltData.SignalStore.active_for(asset)
+    |> Enum.any?(fn sig -> sig.direction in [:bearish, :risk_off] and sig.strength > threshold end)
   end
 
   defp gate_and_flip(ctx, arb) do
@@ -1111,7 +1122,38 @@ defmodule AlpacaTrader.Engine do
       :exit, _ -> []
     end
 
-    scanner_hits ++ dynamic_hits ++ polymarket_hits
+    # Alternative data signals (Tier 5)
+    alt_data_hits = try do
+      entry_threshold = Application.get_env(:alpaca_trader, :alt_data_entry_threshold, 0.65)
+
+      AlpacaTrader.AltData.SignalStore.all_active()
+      |> Enum.filter(fn sig -> sig.strength >= entry_threshold and sig.direction in [:bullish, :risk_on] end)
+      |> Enum.flat_map(fn sig ->
+        Enum.flat_map(sig.affected_symbols || [], fn symbol ->
+          if PairPositionStore.find_open_for_asset(symbol) == nil do
+            [%ArbitragePosition{
+              result: true,
+              asset: symbol,
+              reason: "ALT_DATA[#{sig.provider}]: #{sig.reason}",
+              action: :enter,
+              tier: 5,
+              pair_asset: nil,
+              direction: nil,
+              hedge_ratio: nil,
+              z_score: nil,
+              spread: sig.strength,
+              timestamp: DateTime.utc_now()
+            }]
+          else
+            []
+          end
+        end)
+      end)
+    catch
+      :exit, _ -> []
+    end
+
+    scanner_hits ++ dynamic_hits ++ polymarket_hits ++ alt_data_hits
   end
 
   defp signal_to_arb(sig) do

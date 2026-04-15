@@ -524,14 +524,21 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
   # ── STALE POSITION REAPER ────────────────────────────────────
   # Close Alpaca positions that have negative unrealized P&L and have been
   # held long enough that they're just tying up buying power.
-  # Skips positions flagged by PDT protection (equities under $25k accounts).
+  # Caches PDT-rejected symbols so we don't retry every scan cycle.
+
+  @pdt_cache_key :reaper_pdt_blocked
+  @pdt_cache_ttl_s 3600  # retry PDT-blocked symbols after 1 hour
 
   defp reap_stale_positions(%MarketContext{} = ctx) do
     positions = ctx.positions || []
     market_open? = get_in(ctx.clock, ["is_open"]) == true
+    pdt_blocked = get_pdt_blocked()
 
     positions
-    |> Enum.filter(&stale_position?(&1, market_open?))
+    |> Enum.filter(fn pos ->
+      symbol = pos["symbol"]
+      not Map.has_key?(pdt_blocked, symbol) and stale_position?(pos, market_open?)
+    end)
     |> Enum.flat_map(fn pos ->
       symbol = pos["symbol"]
       unrealized = parse_float(pos["unrealized_pl"]) || 0.0
@@ -559,11 +566,34 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
             timestamp: DateTime.utc_now()
           }]
 
+        {:error, %{"code" => 40310100} = _err} ->
+          # PDT protection — cache this symbol so we don't retry every cycle
+          mark_pdt_blocked(symbol)
+          Logger.debug("[Reaper] 🔒 #{symbol} PDT-blocked, skipping for #{div(@pdt_cache_ttl_s, 60)} min")
+          []
+
         {:error, err} ->
           Logger.warning("[Reaper] ⚠️ failed to close #{symbol}: #{inspect(err) |> String.slice(0..80)}")
           []
       end
     end)
+  end
+
+  defp get_pdt_blocked do
+    now = System.system_time(:second)
+    case :persistent_term.get(@pdt_cache_key, nil) do
+      nil -> %{}
+      cache ->
+        # Evict expired entries
+        cache
+        |> Enum.reject(fn {_sym, ts} -> now - ts > @pdt_cache_ttl_s end)
+        |> Map.new()
+    end
+  end
+
+  defp mark_pdt_blocked(symbol) do
+    cache = get_pdt_blocked()
+    :persistent_term.put(@pdt_cache_key, Map.put(cache, symbol, System.system_time(:second)))
   end
 
   defp stale_position?(pos, market_open?) do

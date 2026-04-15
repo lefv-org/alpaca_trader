@@ -496,7 +496,11 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
   end
 
   def scan_and_execute(%MarketContext{} = ctx) do
-    # Reap stale positions first to free buying power before scanning
+    # Cancel stale pending orders first — pending buy orders cause Alpaca's
+    # PDT protection to block sells (it thinks the sell would complete a day trade)
+    cancel_pending_orders(ctx)
+
+    # Reap stale positions to free buying power before scanning
     reaped = reap_stale_positions(ctx)
 
     {scanned, hits} = do_scan(ctx)
@@ -521,11 +525,26 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
      }}
   end
 
+  # ── CANCEL PENDING ORDERS ──────────────────────────────────────
+  # Pending buy orders cause Alpaca's PDT protection to think that selling
+  # the same symbol would create a day trade. Cancel them before reaping.
+
+  defp cancel_pending_orders(%MarketContext{orders: orders}) when is_list(orders) do
+    pending = Enum.filter(orders, fn o -> o["status"] in ["new", "pending_new", "accepted", "partially_filled"] end)
+
+    if pending != [] do
+      Logger.info("[Reaper] cancelling #{length(pending)} pending orders to clear PDT blocks")
+      AlpacaTrader.Alpaca.Client.cancel_all_orders()
+    end
+  end
+
+  defp cancel_pending_orders(_ctx), do: :ok
+
   # ── STALE POSITION REAPER + DEADLOCK BREAKER ──────────────────
   # 1. Normal reap: close positions with negative P&L (losers).
   # 2. Deadlock break: if buying power is still too low to trade after reaping
   #    losers, close ANY closeable position (worst-performing first) to free capital.
-  # Caches PDT-rejected symbols so we don't retry every scan cycle.
+  # Skips positions bought today (would be a day trade) and PDT-rejected symbols.
 
   @pdt_cache_key :reaper_pdt_blocked
   @pdt_cache_ttl_s 3600  # retry PDT-blocked symbols after 1 hour
@@ -552,12 +571,7 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
         positions
         |> Enum.filter(fn pos ->
           symbol = pos["symbol"]
-          asset_class = pos["asset_class"] || "us_equity"
-          market_value = parse_float(pos["market_value"]) || 0.0
-          is_crypto = asset_class == "crypto"
-          can_close = is_crypto or market_open?
-
-          can_close and abs(market_value) >= 0.50 and not Map.has_key?(pdt_blocked, symbol)
+          not Map.has_key?(pdt_blocked, symbol) and closeable_position?(pos, market_open?)
         end)
         |> Enum.sort_by(fn pos -> parse_float(pos["unrealized_plpc"]) || 0.0 end)
 
@@ -633,10 +647,21 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     :persistent_term.put(@pdt_cache_key, Map.put(cache, symbol, System.system_time(:second)))
   end
 
-  defp stale_position?(pos, market_open?) do
+  # A position bought today would be a day trade if sold — skip it for non-crypto.
+  defp bought_today?(pos) do
     asset_class = pos["asset_class"] || "us_equity"
-    unrealized = parse_float(pos["unrealized_pl"]) || 0.0
-    pct = parse_float(pos["unrealized_plpc"]) || 0.0
+    if asset_class == "crypto" do
+      false  # crypto is exempt from PDT
+    else
+      # Alpaca positions have qty_available and change_today;
+      # if change_today != "0" the position was modified today
+      change = parse_float(pos["change_today"]) || 0.0
+      change != 0.0
+    end
+  end
+
+  defp closeable_position?(pos, market_open?) do
+    asset_class = pos["asset_class"] || "us_equity"
     market_value = parse_float(pos["market_value"]) || 0.0
 
     if abs(market_value) < 0.50 do
@@ -644,10 +669,16 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     else
       is_crypto = asset_class == "crypto"
       can_close = is_crypto or market_open?
-      losing = unrealized < 0 and pct < -0.005
-
-      can_close and losing
+      can_close and not bought_today?(pos)
     end
+  end
+
+  defp stale_position?(pos, market_open?) do
+    unrealized = parse_float(pos["unrealized_pl"]) || 0.0
+    pct = parse_float(pos["unrealized_plpc"]) || 0.0
+    losing = unrealized < 0 and pct < -0.005
+
+    closeable_position?(pos, market_open?) and losing
   end
 
   # ── PRE-FLIGHT: cheap checks before expensive LLM call ──────

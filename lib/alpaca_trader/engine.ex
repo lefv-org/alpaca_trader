@@ -521,9 +521,10 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
      }}
   end
 
-  # ── STALE POSITION REAPER ────────────────────────────────────
-  # Close Alpaca positions that have negative unrealized P&L and have been
-  # held long enough that they're just tying up buying power.
+  # ── STALE POSITION REAPER + DEADLOCK BREAKER ──────────────────
+  # 1. Normal reap: close positions with negative P&L (losers).
+  # 2. Deadlock break: if buying power is still too low to trade after reaping
+  #    losers, close ANY closeable position (worst-performing first) to free capital.
   # Caches PDT-rejected symbols so we don't retry every scan cycle.
 
   @pdt_cache_key :reaper_pdt_blocked
@@ -534,18 +535,52 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     market_open? = get_in(ctx.clock, ["is_open"]) == true
     pdt_blocked = get_pdt_blocked()
 
-    positions
-    |> Enum.filter(fn pos ->
-      symbol = pos["symbol"]
-      not Map.has_key?(pdt_blocked, symbol) and stale_position?(pos, market_open?)
-    end)
-    |> Enum.flat_map(fn pos ->
+    # Phase 1: close losing positions
+    losers =
+      positions
+      |> Enum.filter(fn pos ->
+        symbol = pos["symbol"]
+        not Map.has_key?(pdt_blocked, symbol) and stale_position?(pos, market_open?)
+      end)
+
+    reaped = close_positions(losers, "stale")
+
+    # Phase 2: deadlock breaker — if we still can't afford an entry, close
+    # any closeable position to free capital, worst performers first
+    if not can_afford_entry?(ctx) and reaped == [] do
+      closeable =
+        positions
+        |> Enum.filter(fn pos ->
+          symbol = pos["symbol"]
+          asset_class = pos["asset_class"] || "us_equity"
+          market_value = parse_float(pos["market_value"]) || 0.0
+          is_crypto = asset_class == "crypto"
+          can_close = is_crypto or market_open?
+
+          can_close and abs(market_value) >= 0.50 and not Map.has_key?(pdt_blocked, symbol)
+        end)
+        |> Enum.sort_by(fn pos -> parse_float(pos["unrealized_plpc"]) || 0.0 end)
+
+      if closeable != [] do
+        Logger.info("[Reaper] 🔓 DEADLOCK BREAK: buying power too low, closing #{length(closeable)} positions to free capital")
+        close_positions(closeable, "deadlock break")
+      else
+        Logger.debug("[Reaper] 🔒 deadlocked but no closeable positions (all PDT-blocked or too small)")
+        []
+      end
+    else
+      reaped
+    end
+  end
+
+  defp close_positions(positions, reason_prefix) do
+    Enum.flat_map(positions, fn pos ->
       symbol = pos["symbol"]
       unrealized = parse_float(pos["unrealized_pl"]) || 0.0
       pct = parse_float(pos["unrealized_plpc"]) || 0.0
 
       Logger.info(
-        "[Reaper] 🪓 closing stale #{symbol}: " <>
+        "[Reaper] 🪓 closing #{reason_prefix} #{symbol}: " <>
           "P&L=$#{Float.round(unrealized, 2)} (#{Float.round(pct * 100, 2)}%)"
       )
 
@@ -553,7 +588,6 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
         {:ok, order} ->
           Logger.info("[Reaper] ✅ closed #{symbol} status=#{order["status"]}")
 
-          # Also close the internal pair position if one exists
           case PairPositionStore.find_open_for_asset(symbol) do
             %PairPositionStore.PairPosition{id: id} -> PairPositionStore.close_position(id)
             _ -> :ok
@@ -561,13 +595,12 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
           [%PurchaseContext{
             action: :sold, symbol: symbol,
-            reason: "stale position reaped: P&L=$#{Float.round(unrealized, 2)}",
+            reason: "#{reason_prefix}: P&L=$#{Float.round(unrealized, 2)}",
             qty: pos["qty"], side: "sell", order: order,
             timestamp: DateTime.utc_now()
           }]
 
         {:error, %{"code" => 40310100} = _err} ->
-          # PDT protection — cache this symbol so we don't retry every cycle
           mark_pdt_blocked(symbol)
           Logger.debug("[Reaper] 🔒 #{symbol} PDT-blocked, skipping for #{div(@pdt_cache_ttl_s, 60)} min")
           []
@@ -584,7 +617,6 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     case :persistent_term.get(@pdt_cache_key, nil) do
       nil -> %{}
       cache ->
-        # Evict expired entries
         cache
         |> Enum.reject(fn {_sym, ts} -> now - ts > @pdt_cache_ttl_s end)
         |> Map.new()
@@ -602,16 +634,11 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     pct = parse_float(pos["unrealized_plpc"]) || 0.0
     market_value = parse_float(pos["market_value"]) || 0.0
 
-    # Skip tiny/zero positions
     if abs(market_value) < 0.50 do
       false
     else
       is_crypto = asset_class == "crypto"
-
-      # Crypto can be closed anytime; equities only when market is open
       can_close = is_crypto or market_open?
-
-      # Stale = losing money (negative P&L) or flat with negligible gain
       losing = unrealized < 0 and pct < -0.005
 
       can_close and losing

@@ -43,10 +43,7 @@ defmodule AlpacaTrader.Engine do
     fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
     shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
     buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
-    equity           = parse_float(get_in(ctx.account, ["equity"]))
     notional         = params["notional"] && parse_float(params["notional"])
-    reserve_pct      = Application.get_env(:alpaca_trader, :portfolio_reserve_pct, 0.25)
-    reserve          = equity && equity * reserve_pct
 
     held_qty =
       (ctx.positions || [])
@@ -66,9 +63,8 @@ defmodule AlpacaTrader.Engine do
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
         hold(ctx.symbol, "account does not support shorting")
 
-side == "buy" and notional != nil and buying_power != nil and reserve != nil and
-          (buying_power - notional) < reserve ->
-        hold(ctx.symbol, "portfolio reserve: $#{Float.round(buying_power - notional, 2)} remaining < $#{Float.round(reserve, 2)} (#{trunc(reserve_pct * 100)}% of $#{Float.round(equity, 2)})")
+      side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
+        hold(ctx.symbol, "insufficient buying power: $#{Float.round(buying_power, 2)} < $#{notional} needed")
 
       side == "buy" and notional != nil and not fractionable? ->
         hold(ctx.symbol, "asset not fractionable, skipping notional order")
@@ -131,10 +127,7 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
     shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
     buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
-    equity           = parse_float(get_in(ctx.account, ["equity"]))
     notional         = params["notional"] && parse_float(params["notional"])
-    reserve_pct      = Application.get_env(:alpaca_trader, :portfolio_reserve_pct, 0.25)
-    reserve          = equity && equity * reserve_pct
 
     held_qty =
       (ctx.positions || [])
@@ -148,8 +141,8 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
       not tradable? -> {:blocked, "not tradable"}
       asset_class != "crypto" and not market_open? -> {:blocked, "market closed"}
       side == "sell" and held_qty <= 0 and not shorting_enabled? -> {:blocked, "no shorting"}
-      side == "buy" and notional != nil and buying_power != nil and reserve != nil and
-        (buying_power - notional) < reserve -> {:blocked, "insufficient buying power"}
+      side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
+        {:blocked, "insufficient buying power"}
       side == "buy" and notional != nil and not fractionable? -> {:blocked, "not fractionable"}
       true -> :ok
     end
@@ -718,13 +711,16 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
   defp can_afford_entry?(ctx) do
     buying_power = parse_float(get_in(ctx.account, ["buying_power"])) || 0.0
-    equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
-    reserve_pct = Application.get_env(:alpaca_trader, :portfolio_reserve_pct, 0.25)
-    notional_pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
-    reserve = equity * reserve_pct
-    notional = max(equity * notional_pct, 1.0)
+    notional = compute_notional(ctx)
 
-    (buying_power - notional) >= reserve
+    # Simple check: can we afford at least one trade's notional?
+    buying_power >= notional
+  end
+
+  defp compute_notional(ctx) do
+    equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
+    notional_pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
+    max(equity * notional_pct, 1.0)
   end
 
   # ── LLM CONVICTION GATE ─────────────────────────────────────

@@ -496,6 +496,9 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
   end
 
   def scan_and_execute(%MarketContext{} = ctx) do
+    # Reap stale positions first to free buying power before scanning
+    reaped = reap_stale_positions(ctx)
+
     {scanned, hits} = do_scan(ctx)
 
     trades =
@@ -509,13 +512,80 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
         end
       end)
 
-    executed = Enum.count(trades, &(&1.action in [:bought, :sold]))
+    executed = Enum.count(trades, &(&1.action in [:bought, :sold])) + length(reaped)
 
     {:ok,
      %ArbitrageScanResult{
        scanned: scanned, hits: length(hits), opportunities: hits,
-       executed: executed, trades: trades, timestamp: DateTime.utc_now()
+       executed: executed, trades: trades ++ reaped, timestamp: DateTime.utc_now()
      }}
+  end
+
+  # ── STALE POSITION REAPER ────────────────────────────────────
+  # Close Alpaca positions that have negative unrealized P&L and have been
+  # held long enough that they're just tying up buying power.
+  # Skips positions flagged by PDT protection (equities under $25k accounts).
+
+  defp reap_stale_positions(%MarketContext{} = ctx) do
+    positions = ctx.positions || []
+    market_open? = get_in(ctx.clock, ["is_open"]) == true
+
+    positions
+    |> Enum.filter(&stale_position?(&1, market_open?))
+    |> Enum.flat_map(fn pos ->
+      symbol = pos["symbol"]
+      unrealized = parse_float(pos["unrealized_pl"]) || 0.0
+      pct = parse_float(pos["unrealized_plpc"]) || 0.0
+
+      Logger.info(
+        "[Reaper] 🪓 closing stale #{symbol}: " <>
+          "P&L=$#{Float.round(unrealized, 2)} (#{Float.round(pct * 100, 2)}%)"
+      )
+
+      case AlpacaTrader.Alpaca.Client.close_position(URI.encode(symbol)) do
+        {:ok, order} ->
+          Logger.info("[Reaper] ✅ closed #{symbol} status=#{order["status"]}")
+
+          # Also close the internal pair position if one exists
+          case PairPositionStore.find_open_for_asset(symbol) do
+            %PairPositionStore.PairPosition{id: id} -> PairPositionStore.close_position(id)
+            _ -> :ok
+          end
+
+          [%PurchaseContext{
+            action: :sold, symbol: symbol,
+            reason: "stale position reaped: P&L=$#{Float.round(unrealized, 2)}",
+            qty: pos["qty"], side: "sell", order: order,
+            timestamp: DateTime.utc_now()
+          }]
+
+        {:error, err} ->
+          Logger.warning("[Reaper] ⚠️ failed to close #{symbol}: #{inspect(err) |> String.slice(0..80)}")
+          []
+      end
+    end)
+  end
+
+  defp stale_position?(pos, market_open?) do
+    asset_class = pos["asset_class"] || "us_equity"
+    unrealized = parse_float(pos["unrealized_pl"]) || 0.0
+    pct = parse_float(pos["unrealized_plpc"]) || 0.0
+    market_value = parse_float(pos["market_value"]) || 0.0
+
+    # Skip tiny/zero positions
+    if abs(market_value) < 0.50 do
+      false
+    else
+      is_crypto = asset_class == "crypto"
+
+      # Crypto can be closed anytime; equities only when market is open
+      can_close = is_crypto or market_open?
+
+      # Stale = losing money (negative P&L) or flat with negligible gain
+      losing = unrealized < 0 and pct < -0.005
+
+      can_close and losing
+    end
   end
 
   # ── PRE-FLIGHT: cheap checks before expensive LLM call ──────

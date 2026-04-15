@@ -122,6 +122,39 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     {:ok, %PurchaseContext{action: :hold, symbol: symbol, reason: reason, timestamp: DateTime.utc_now()}}
   end
 
+  # Dry-run validation: same checks as execute_trade but no order submission.
+  # Returns :ok or {:blocked, reason}.
+  defp preflight_leg(%MarketContext{} = ctx, %{"side" => side} = params) do
+    asset_class      = get_in(ctx.asset, ["class"]) || "us_equity"
+    market_open?     = get_in(ctx.clock, ["is_open"]) == true
+    tradable?        = get_in(ctx.asset, ["tradable"]) == true
+    fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
+    shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
+    buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
+    equity           = parse_float(get_in(ctx.account, ["equity"]))
+    notional         = params["notional"] && parse_float(params["notional"])
+    reserve_pct      = Application.get_env(:alpaca_trader, :portfolio_reserve_pct, 0.25)
+    reserve          = equity && equity * reserve_pct
+
+    held_qty =
+      (ctx.positions || [])
+      |> Enum.find(fn p -> p["symbol"] == ctx.symbol end)
+      |> case do
+        %{"qty" => q} -> parse_float(q)
+        _ -> 0.0
+      end
+
+    cond do
+      not tradable? -> {:blocked, "not tradable"}
+      asset_class != "crypto" and not market_open? -> {:blocked, "market closed"}
+      side == "sell" and held_qty <= 0 and not shorting_enabled? -> {:blocked, "no shorting"}
+      side == "buy" and notional != nil and buying_power != nil and reserve != nil and
+        (buying_power - notional) < reserve -> {:blocked, "insufficient buying power"}
+      side == "buy" and notional != nil and not fractionable? -> {:blocked, "not fractionable"}
+      true -> :ok
+    end
+  end
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, val), do: Map.put(map, key, val)
@@ -819,11 +852,35 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
     trades =
       case order_params do
         %{pair: true, legs: legs} ->
-          Enum.map(legs, fn leg ->
-            leg_ctx = build_leg_context(ctx, leg["symbol"])
-            {:ok, purchase} = execute_trade(leg_ctx, leg)
-            purchase
+          # Validate ALL legs can execute before submitting any orders.
+          # Without this, leg 1 (buy) succeeds but leg 2 (sell) fails due to
+          # PDT/shorting/market-closed, leaving an orphaned unhedged position.
+          leg_contexts = Enum.map(legs, fn leg ->
+            {build_leg_context(ctx, leg["symbol"]), leg}
           end)
+
+          blockers = Enum.flat_map(leg_contexts, fn {leg_ctx, leg} ->
+            case preflight_leg(leg_ctx, leg) do
+              :ok -> []
+              {:blocked, reason} -> [{leg["symbol"], leg["side"], reason}]
+            end
+          end)
+
+          if blockers == [] do
+            Enum.map(leg_contexts, fn {leg_ctx, leg} ->
+              {:ok, purchase} = execute_trade(leg_ctx, leg)
+              purchase
+            end)
+          else
+            # Log once for the pair, not per-leg
+            blocked_desc = Enum.map_join(blockers, ", ", fn {sym, side, reason} ->
+              "#{sym}(#{side}): #{reason}"
+            end)
+            Logger.debug("[Trade] ⏸ HOLD pair #{arb.asset}↔#{arb.pair_asset}: #{blocked_desc}")
+            Enum.map(leg_contexts, fn {leg_ctx, _leg} ->
+              %PurchaseContext{action: :hold, symbol: leg_ctx.symbol, reason: "pair leg blocked", timestamp: DateTime.utc_now()}
+            end)
+          end
 
         params ->
           trade_ctx = build_leg_context(ctx, arb.asset)

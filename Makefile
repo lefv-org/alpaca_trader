@@ -5,7 +5,7 @@
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## //' | column -t -s ':'
 
-## dev:   Start the Phoenix dev server, full logs (loads .env)
+## dev:   Start the Phoenix dev server, full logs → output.log (loads .env)
 ## start: Start trading bot, foreground — shows trades + LLM decisions only
 ## setup: Install deps and build assets (first-time)
 ## test:  Run tests
@@ -43,11 +43,11 @@ print(f\"  Account:    {d.get('account_env', 'unknown')}\"); \
 	  echo "══════════════════════════════════════════════"; \
 	fi
 
-# Start the Phoenix dev server, full output
+# Start the Phoenix dev server, full output → also logs to output.log
 dev: _kill_port
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	trap '$(_session_summary)' INT TERM; \
-	elixir --no-halt -S mix phx.server; \
+	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
 	$(_session_summary)
 
 # Start trading bot in foreground — filters to trades + LLM decisions

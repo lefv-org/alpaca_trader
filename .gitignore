@@ -38,3 +38,7 @@ alpaca_trader-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Trading session logs
+output.log
+arb_results.log
+

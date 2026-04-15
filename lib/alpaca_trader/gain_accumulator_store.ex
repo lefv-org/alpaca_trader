@@ -65,7 +65,11 @@ defmodule AlpacaTrader.GainAccumulatorStore do
   def handle_call({:allow_entry, equity}, _from, %{principal: principal} = state) do
     notional_pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
     fee_rate = Application.get_env(:alpaca_trader, :trade_fee_rate, 0.003)
-    fee_tolerance = equity * notional_pct * fee_rate
+    # Floor: lose at least 1% of one trade's notional before locking out.
+    # Without this, small accounts ($100) get a tolerance of $0.0003 — a single
+    # crypto spread trips the gate and permanently blocks the session.
+    min_tolerance = equity * notional_pct * 0.01
+    fee_tolerance = max(equity * notional_pct * fee_rate, min_tolerance)
     gain = equity - principal
 
     persist_session(principal, equity)

@@ -6,7 +6,8 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
   setup do
     tmp = System.tmp_dir!() <> "/gain_acc_test_#{:erlang.unique_integer([:positive])}.json"
     Application.put_env(:alpaca_trader, :gain_accumulator_path, tmp)
-    Application.put_env(:alpaca_trader, :order_notional, "10")
+    Application.put_env(:alpaca_trader, :order_notional_pct, 0.001)
+    Application.put_env(:alpaca_trader, :trade_fee_rate, 0.003)
     GainAccumulatorStore.reset()
     on_exit(fn ->
       try do
@@ -18,19 +19,32 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
     %{tmp: tmp}
   end
 
-  test "first call snapshots principal and returns false", %{tmp: tmp} do
-    refute GainAccumulatorStore.allow_entry?(100.0)
+  test "first call snapshots principal and allows entry", %{tmp: tmp} do
+    assert GainAccumulatorStore.allow_entry?(100.0)
     assert GainAccumulatorStore.principal() == 100.0
     assert File.exists?(tmp)
     assert {:ok, %{"principal" => 100.0}} = Jason.decode(File.read!(tmp))
   end
 
-  test "blocks entry when gain < order_notional" do
+  test "allows entry when loss is within fee tolerance" do
+    # principal=100, equity=99.9995 → gain=-0.0005
+    # fee_tolerance = max(99.9995 * 0.001 * 0.003, 99.9995 * 0.001 * 0.01)
+    #               = max(~0.0003, ~0.001) = ~0.001
+    # -0.0005 >= -0.001 → allowed
     GainAccumulatorStore.allow_entry?(100.0)
-    refute GainAccumulatorStore.allow_entry?(105.0)
+    assert GainAccumulatorStore.allow_entry?(99.9995)
   end
 
-  test "allows entry when gain >= order_notional" do
+  test "blocks entry when loss exceeds fee tolerance" do
+    # principal=100, equity=99.98 → gain=-0.02
+    # fee_tolerance = max(99.98 * 0.001 * 0.003, 99.98 * 0.001 * 0.01)
+    #               = max(0.0003, 0.001) = 0.001
+    # -0.02 >= -0.001 → false → blocked
+    GainAccumulatorStore.allow_entry?(100.0)
+    refute GainAccumulatorStore.allow_entry?(99.98)
+  end
+
+  test "allows entry when equity is above principal" do
     GainAccumulatorStore.allow_entry?(100.0)
     assert GainAccumulatorStore.allow_entry?(110.0)
   end
@@ -61,5 +75,4 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
     assert GainAccumulatorStore.principal() == nil
     refute File.exists?(tmp)
   end
-
 end

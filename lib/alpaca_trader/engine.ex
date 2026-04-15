@@ -518,28 +518,57 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
      }}
   end
 
+  # ── PRE-FLIGHT: cheap checks before expensive LLM call ──────
+
+  defp can_afford_entry?(ctx) do
+    buying_power = parse_float(get_in(ctx.account, ["buying_power"])) || 0.0
+    equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
+    reserve_pct = Application.get_env(:alpaca_trader, :portfolio_reserve_pct, 0.25)
+    notional_pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
+    reserve = equity * reserve_pct
+    notional = max(equity * notional_pct, 1.0)
+
+    (buying_power - notional) >= reserve
+  end
+
   # ── LLM CONVICTION GATE ─────────────────────────────────────
 
   defp gate_and_enter(ctx, arb) do
-    case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
-      {:ok, %{decision: "suppress"}} ->
-        Logger.info("[LLM Gate] SUPPRESSED #{arb.asset}: #{arb.reason}")
+    # Cheap checks first, expensive LLM last.
+    # 1. Can the account afford a new entry? (buying power > reserve + notional)
+    # 2. Is the gain accumulator allowing entries?
+    # Only then call the LLM.
+    cond do
+      not can_afford_entry?(ctx) ->
+        Logger.debug("[Pre-flight] ⏸ skipping #{arb.asset}: insufficient buying power for entry")
         []
 
-      {:ok, %{conviction: c}} when c < 0.3 ->
-        Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for #{arb.asset}")
+      not gain_allows_entry?(ctx) ->
         []
 
-      {:ok, %{conviction: c, reasoning: r}} ->
-        Logger.info("[LLM Gate] CONFIRMED #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
-        if gain_allows_entry?(ctx), do: execute_entry(ctx, arb), else: []
+      true ->
+        case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
+          {:ok, %{decision: "suppress"}} ->
+            Logger.info("[LLM Gate] SUPPRESSED #{arb.asset}: #{arb.reason}")
+            []
 
-      _ ->
-        if gain_allows_entry?(ctx), do: execute_entry(ctx, arb), else: []
+          {:ok, %{conviction: c}} when c < 0.3 ->
+            Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for #{arb.asset}")
+            []
+
+          {:ok, %{conviction: c, reasoning: r}} ->
+            Logger.info("[LLM Gate] CONFIRMED #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+            execute_entry(ctx, arb)
+
+          _ ->
+            execute_entry(ctx, arb)
+        end
     end
   end
 
   defp gate_and_flip(ctx, arb) do
+    gain_ok? = gain_allows_entry?(ctx)
+
     case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
       {:ok, %{decision: "suppress"}} ->
         # Suppressed flip → still close the position to avoid leaving it unmanaged
@@ -553,33 +582,41 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
       {:ok, %{conviction: c, reasoning: r}} ->
         Logger.info("[LLM Gate] CONFIRMED flip #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
-        if gain_allows_entry?(ctx), do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
+        if gain_ok?, do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
 
       _ ->
-        if gain_allows_entry?(ctx), do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
+        if gain_ok?, do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
     end
   end
 
   # ── ROTATION: LLM gate → close victim → enter new ──────────
 
   defp gate_and_rotate(ctx, arb) do
-    case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
-      {:ok, %{decision: "suppress"}} ->
-        Logger.info("[LLM Gate] SUPPRESSED rotation #{arb.asset}")
+    cond do
+      not can_afford_entry?(ctx) ->
+        Logger.debug("[Pre-flight] ⏸ skipping rotation #{arb.asset}: insufficient buying power")
         []
 
-      {:ok, %{conviction: c}} when c < 0.3 ->
-        Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for rotation #{arb.asset}")
+      not gain_allows_entry?(ctx) ->
         []
 
-      {:ok, %{conviction: c, reasoning: r}} ->
-        Logger.info("[LLM Gate] CONFIRMED rotation #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
-        # Gain gate blocks: skip the whole rotation (don't close victim, don't open new).
-        # Victim stays open; a future scan will re-evaluate it independently.
-        if gain_allows_entry?(ctx), do: execute_rotate(ctx, arb), else: []
+      true ->
+        case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
+          {:ok, %{decision: "suppress"}} ->
+            Logger.info("[LLM Gate] SUPPRESSED rotation #{arb.asset}")
+            []
 
-      _ ->
-        if gain_allows_entry?(ctx), do: execute_rotate(ctx, arb), else: []
+          {:ok, %{conviction: c}} when c < 0.3 ->
+            Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for rotation #{arb.asset}")
+            []
+
+          {:ok, %{conviction: c, reasoning: r}} ->
+            Logger.info("[LLM Gate] CONFIRMED rotation #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+            execute_rotate(ctx, arb)
+
+          _ ->
+            execute_rotate(ctx, arb)
+        end
     end
   end
 

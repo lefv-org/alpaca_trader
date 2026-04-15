@@ -563,9 +563,14 @@ side == "buy" and notional != nil and buying_power != nil and reserve != nil and
 
       if closeable != [] do
         Logger.info("[Reaper] 🔓 DEADLOCK BREAK: buying power too low, closing #{length(closeable)} positions to free capital")
+        :persistent_term.put(:reaper_deadlock_logged, false)
         close_positions(closeable, "deadlock break")
       else
-        Logger.debug("[Reaper] 🔒 deadlocked but no closeable positions (all PDT-blocked or too small)")
+        # Log once, then stay quiet until the deadlock clears
+        unless :persistent_term.get(:reaper_deadlock_logged, false) do
+          Logger.info("[Reaper] 🔒 deadlocked: all positions PDT-blocked or too small, waiting for PDT window to clear")
+          :persistent_term.put(:reaper_deadlock_logged, true)
+        end
         []
       end
     else

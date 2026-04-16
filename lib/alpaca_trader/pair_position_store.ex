@@ -1,12 +1,25 @@
 defmodule AlpacaTrader.PairPositionStore do
   @moduledoc """
-  ETS-backed store for tracking open pair trade positions.
+  ETS-backed store for tracking open pair trade positions, with atomic
+  JSON persistence across restarts.
+
   Tracks entry state, current z-score, P&L, and exit thresholds.
+
+  Persistence: every mutation (`open_position`, `close_position`, `tick`,
+  `flip_position`) writes the full state to `priv/runtime/pair_positions.json`
+  via tmp+rename. On boot, the same file is loaded back into ETS.
+
+  Without persistence, a crash/restart wiped in-memory pair tracking while
+  Alpaca still held the positions — they became "orphans" blocking further
+  trades on those symbols. This fix breaks that cycle.
   """
 
   use GenServer
 
+  require Logger
+
   @table :pair_position_store
+  @default_path "priv/runtime/pair_positions.json"
 
   defmodule PairPosition do
     @moduledoc "An open pair trade being tracked for exit conditions."
@@ -72,6 +85,7 @@ defmodule AlpacaTrader.PairPositionStore do
     }
 
     :ets.insert(@table, {id, pos})
+    persist_async()
     {:ok, pos}
   end
 
@@ -98,6 +112,7 @@ defmodule AlpacaTrader.PairPositionStore do
         }
 
         :ets.insert(@table, {id, updated})
+        persist_async()
         {:ok, updated}
 
       [] ->
@@ -111,6 +126,7 @@ defmodule AlpacaTrader.PairPositionStore do
       [{^id, %PairPosition{} = pos}] ->
         closed = %PairPosition{pos | status: :closed, last_updated: DateTime.utc_now()}
         :ets.insert(@table, {id, closed})
+        persist_async()
         {:ok, closed}
 
       [] ->
@@ -147,6 +163,7 @@ defmodule AlpacaTrader.PairPositionStore do
           last_flip_time: DateTime.utc_now()
         }
         :ets.insert(@table, {flipped.id, flipped})
+        persist_async()
         {:ok, flipped}
 
       [] ->
@@ -188,6 +205,7 @@ defmodule AlpacaTrader.PairPositionStore do
   @doc "Clear all positions (for testing)."
   def clear do
     :ets.delete_all_objects(@table)
+    persist_async()
     :ok
   end
 
@@ -196,6 +214,147 @@ defmodule AlpacaTrader.PairPositionStore do
   @impl true
   def init(_) do
     table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+    load_from_disk()
     {:ok, %{table: table}}
   end
+
+  @impl true
+  def handle_cast(:persist, state) do
+    do_persist()
+    {:noreply, state}
+  end
+
+  # ── Persistence ─────────────────────────────────────────────
+
+  defp persist_async do
+    # Cast so mutators return fast; write happens in the GenServer process.
+    GenServer.cast(__MODULE__, :persist)
+  end
+
+  defp file_path do
+    Application.get_env(:alpaca_trader, :pair_positions_path, @default_path)
+  end
+
+  defp do_persist do
+    positions =
+      @table
+      |> :ets.tab2list()
+      |> Enum.map(fn {_id, pos} -> pos_to_map(pos) end)
+
+    payload =
+      Jason.encode!(%{
+        positions: positions,
+        count: length(positions),
+        updated_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+
+    final = file_path()
+    tmp = final <> ".tmp"
+
+    with :ok <- File.mkdir_p(Path.dirname(final)),
+         :ok <- File.write(tmp, payload),
+         :ok <- File.rename(tmp, final) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.error("[PairPositionStore] persist failed: #{inspect(reason)}")
+    end
+  end
+
+  defp load_from_disk do
+    path = file_path()
+
+    case File.read(path) do
+      {:ok, body} ->
+        case Jason.decode(body) do
+          {:ok, %{"positions" => positions}} when is_list(positions) ->
+            restored =
+              positions
+              |> Enum.map(&map_to_pos/1)
+              |> Enum.reject(&is_nil/1)
+
+            Enum.each(restored, fn pos -> :ets.insert(@table, {pos.id, pos}) end)
+            open = Enum.count(restored, &(&1.status == :open))
+
+            if restored != [] do
+              Logger.info("[PairPositionStore] restored #{length(restored)} positions (#{open} open) from #{path}")
+            end
+
+          _ ->
+            :ok
+        end
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("[PairPositionStore] load failed: #{inspect(reason)}")
+    end
+  end
+
+  defp pos_to_map(%PairPosition{} = pos) do
+    pos
+    |> Map.from_struct()
+    |> Map.update(:entry_time, nil, &iso_or_nil/1)
+    |> Map.update(:last_updated, nil, &iso_or_nil/1)
+    |> Map.update(:last_flip_time, nil, &iso_or_nil/1)
+    |> Map.update(:direction, nil, &atom_to_string/1)
+    |> Map.update(:status, nil, &atom_to_string/1)
+  end
+
+  defp map_to_pos(%{"id" => id} = m) do
+    %PairPosition{
+      id: id,
+      asset_a: m["asset_a"],
+      asset_b: m["asset_b"],
+      direction: parse_direction(m["direction"]),
+      tier: m["tier"],
+      entry_z_score: m["entry_z_score"],
+      entry_hedge_ratio: m["entry_hedge_ratio"],
+      entry_price_a: m["entry_price_a"],
+      entry_price_b: m["entry_price_b"],
+      entry_time: parse_dt(m["entry_time"]),
+      current_z_score: m["current_z_score"],
+      bars_held: m["bars_held"] || 0,
+      last_updated: parse_dt(m["last_updated"]),
+      exit_z_threshold: m["exit_z_threshold"],
+      stop_z_threshold: m["stop_z_threshold"],
+      max_hold_bars: m["max_hold_bars"],
+      status: parse_status(m["status"]),
+      flip_count: m["flip_count"] || 0,
+      consecutive_losses: m["consecutive_losses"] || 0,
+      last_flip_time: parse_dt(m["last_flip_time"])
+    }
+  end
+
+  defp map_to_pos(_), do: nil
+
+  defp iso_or_nil(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp iso_or_nil(_), do: nil
+
+  defp atom_to_string(a) when is_atom(a) and not is_nil(a), do: Atom.to_string(a)
+  defp atom_to_string(s) when is_binary(s), do: s
+  defp atom_to_string(_), do: nil
+
+  defp parse_dt(nil), do: nil
+
+  defp parse_dt(s) when is_binary(s) do
+    case DateTime.from_iso8601(s) do
+      {:ok, dt, _} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_dt(%DateTime{} = dt), do: dt
+  defp parse_dt(_), do: nil
+
+  defp parse_direction("long_a_short_b"), do: :long_a_short_b
+  defp parse_direction("long_b_short_a"), do: :long_b_short_a
+  defp parse_direction(a) when is_atom(a), do: a
+  defp parse_direction(_), do: nil
+
+  defp parse_status("open"), do: :open
+  defp parse_status("closed"), do: :closed
+  defp parse_status(a) when is_atom(a), do: a
+  defp parse_status(_), do: :closed
 end

@@ -11,7 +11,7 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
   use GenServer
 
   alias AlpacaTrader.Alpaca.Client
-  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion}
+  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion, PairWhitelist}
 
   require Logger
 
@@ -178,6 +178,14 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
   # stationary with a reasonable half-life. Correlation alone is insufficient —
   # two trending assets can correlate at 0.9 and never mean-revert.
   defp build_pair_with_cointegration(a, b, corr, closes_a, closes_b) do
+    cond do
+      not PairWhitelist.allowed?(a, b) -> nil
+      length(closes_a) < @min_bars or length(closes_b) < @min_bars -> nil
+      true -> do_build_pair(a, b, corr, closes_a, closes_b)
+    end
+  end
+
+  defp do_build_pair(a, b, corr, closes_a, closes_b) do
     if length(closes_a) >= @min_bars and length(closes_b) >= @min_bars do
       l = min(length(closes_a), length(closes_b))
       ca = Enum.take(closes_a, -l)

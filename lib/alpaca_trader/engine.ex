@@ -745,15 +745,22 @@ defmodule AlpacaTrader.Engine do
   defp execute_entry(ctx, arb) do
     pair_label = "#{arb.asset}↔#{arb.pair_asset}"
 
-    # Portfolio-level gate before we touch any order params. Prevents sector
-    # concentration and global position count blowouts.
-    case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
-      {:blocked, reason} ->
-        Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+    cond do
+      # Whitelist gate: only trade pairs that are robust across walk-forward
+      # windows. When the whitelist is disabled or empty this is a no-op.
+      not AlpacaTrader.Arbitrage.PairWhitelist.allowed?(arb.asset, arb.pair_asset) ->
+        Logger.debug("[Trade] ⏸ HOLD pair #{pair_label} (not whitelisted)")
         []
 
-      :ok ->
-        execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+      true ->
+        case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
+          {:blocked, reason} ->
+            Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+            []
+
+          :ok ->
+            execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+        end
     end
   end
 

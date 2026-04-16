@@ -170,5 +170,9 @@ if config_env() != :test do
                        "marketable_limit" -> :marketable_limit
                        _ -> :market
                      end),
-    order_marketable_limit_tolerance_bps: String.to_integer(System.get_env("ORDER_MARKETABLE_LIMIT_TOLERANCE_BPS", "50"))
+    order_marketable_limit_tolerance_bps: String.to_integer(System.get_env("ORDER_MARKETABLE_LIMIT_TOLERANCE_BPS", "50")),
+    # Pair whitelist: only allow pairs that appear robust in walk-forward.
+    # Off by default — set to true after populating priv/runtime/pair_whitelist.json.
+    pair_whitelist_enabled: System.get_env("PAIR_WHITELIST_ENABLED", "false") == "true",
+    pair_whitelist_path: System.get_env("PAIR_WHITELIST_PATH", "priv/runtime/pair_whitelist.json")
 end

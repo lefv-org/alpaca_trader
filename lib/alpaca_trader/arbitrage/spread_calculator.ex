@@ -36,6 +36,24 @@ defmodule AlpacaTrader.Arbitrage.SpreadCalculator do
   end
 
   @doc """
+  Adaptive hedge ratio: routes to Kalman filter or OLS based on config.
+  `HEDGE_RATIO_MODE=kalman` → dynamic ratio that tracks regime shifts.
+  Default `ols` keeps historical behavior.
+  """
+  def adaptive_hedge_ratio(prices_a, prices_b) do
+    case Application.get_env(:alpaca_trader, :hedge_ratio_mode, :ols) do
+      :kalman ->
+        case AlpacaTrader.Arbitrage.KalmanFilter.final_ratio(prices_a, prices_b) do
+          nil -> hedge_ratio(prices_a, prices_b)
+          r -> r
+        end
+
+      _ ->
+        hedge_ratio(prices_a, prices_b)
+    end
+  end
+
+  @doc """
   Compute spread series: spread_i = price_a_i - ratio * price_b_i
   """
   def spread_series(prices_a, prices_b, ratio) do
@@ -87,7 +105,7 @@ defmodule AlpacaTrader.Arbitrage.SpreadCalculator do
       do: nil
 
   def analyze(prices_a, prices_b) do
-    ratio = hedge_ratio(prices_a, prices_b)
+    ratio = adaptive_hedge_ratio(prices_a, prices_b)
     spread = spread_series(prices_a, prices_b, ratio)
     z = z_score(spread)
     n = length(spread)

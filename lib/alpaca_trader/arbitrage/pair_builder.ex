@@ -11,7 +11,7 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
   use GenServer
 
   alias AlpacaTrader.Alpaca.Client
-  alias AlpacaTrader.Arbitrage.SpreadCalculator
+  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion}
 
   require Logger
 
@@ -163,20 +163,7 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
                 _ -> []
               end
 
-            z_score =
-              if length(closes_a) >= @min_bars and length(closes_b) >= @min_bars do
-                l = min(length(closes_a), length(closes_b))
-                analysis = SpreadCalculator.analyze(Enum.take(closes_a, -l), Enum.take(closes_b, -l))
-                if analysis, do: analysis.z_score, else: nil
-              end
-
-            %{
-              asset_a: a,
-              asset_b: b,
-              correlation: Float.round(corr, 4),
-              z_score: z_score,
-              source: :dynamic
-            }
+            build_pair_with_cointegration(a, b, corr, closes_a, closes_b)
           end
         end
       end
@@ -185,6 +172,68 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
       |> Enum.take(@max_pairs)
 
     pairs
+  end
+
+  # Apply the MeanReversion.classify gate to ensure the spread is actually
+  # stationary with a reasonable half-life. Correlation alone is insufficient —
+  # two trending assets can correlate at 0.9 and never mean-revert.
+  defp build_pair_with_cointegration(a, b, corr, closes_a, closes_b) do
+    if length(closes_a) >= @min_bars and length(closes_b) >= @min_bars do
+      l = min(length(closes_a), length(closes_b))
+      ca = Enum.take(closes_a, -l)
+      cb = Enum.take(closes_b, -l)
+
+      analysis = SpreadCalculator.analyze(ca, cb)
+
+      if analysis do
+        spread = SpreadCalculator.spread_series(ca, cb, analysis.hedge_ratio)
+
+        if cointegration_gate_enabled?() do
+          case MeanReversion.classify(spread,
+                 max_half_life: max_half_life_bars(),
+                 max_hurst: max_hurst()
+               ) do
+            {:ok, mr} ->
+              %{
+                asset_a: a,
+                asset_b: b,
+                correlation: Float.round(corr, 4),
+                z_score: analysis.z_score,
+                hedge_ratio: analysis.hedge_ratio,
+                half_life: mr.half_life,
+                hurst: mr.hurst,
+                adf_t_stat: mr.adf.t_stat,
+                source: :dynamic
+              }
+
+            {:reject, reason} ->
+              Logger.debug("[PairBuilder] rejected #{a}-#{b} (corr=#{Float.round(corr, 2)}): #{inspect(reason)}")
+              nil
+          end
+        else
+          %{
+            asset_a: a,
+            asset_b: b,
+            correlation: Float.round(corr, 4),
+            z_score: analysis.z_score,
+            hedge_ratio: analysis.hedge_ratio,
+            source: :dynamic
+          }
+        end
+      end
+    end
+  end
+
+  defp cointegration_gate_enabled? do
+    Application.get_env(:alpaca_trader, :pair_cointegration_gate, true)
+  end
+
+  defp max_half_life_bars do
+    Application.get_env(:alpaca_trader, :pair_max_half_life_bars, 60)
+  end
+
+  defp max_hurst do
+    Application.get_env(:alpaca_trader, :pair_max_hurst, 0.75)
   end
 
   defp correlation(xs, ys) when length(xs) < 2 or length(ys) < 2, do: 0.0

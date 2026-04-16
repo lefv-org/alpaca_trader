@@ -743,8 +743,22 @@ defmodule AlpacaTrader.Engine do
   # ── ENTRY EXECUTION ────────────────────────────────────────
 
   defp execute_entry(ctx, arb) do
-    order_params = build_entry_params(ctx, arb)
     pair_label = "#{arb.asset}↔#{arb.pair_asset}"
+
+    # Portfolio-level gate before we touch any order params. Prevents sector
+    # concentration and global position count blowouts.
+    case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
+      {:blocked, reason} ->
+        Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+        []
+
+      :ok ->
+        execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+    end
+  end
+
+  defp execute_entry_post_portfolio_gate(ctx, arb, pair_label) do
+    order_params = build_entry_params(ctx, arb)
 
     trades =
       case order_params do
@@ -798,10 +812,44 @@ defmodule AlpacaTrader.Engine do
     # real broker-side position.
     if OrderExecutor.pair_executed?(trades) do
       pos = PairPositionStore.find_open_for_asset(arb.asset)
-      if pos, do: PairPositionStore.close_position(pos.id)
+
+      if pos do
+        log_closed_trade(pos, arb, ctx, trades, :exit)
+        PairPositionStore.close_position(pos.id)
+      end
     end
 
     trades
+  end
+
+  # Record a closed trade to the append-only TradeLog for post-hoc analysis.
+  # Captures the context at entry, the exit trigger, and the realized P&L.
+  defp log_closed_trade(pos, arb, ctx, _trades, reason) do
+    price_a = get_live_price(ctx, pos.asset_a)
+    price_b = get_live_price(ctx, pos.asset_b)
+    pnl = compute_pnl(pos, price_a, price_b)
+
+    AlpacaTrader.TradeLog.record(%{
+      pair: "#{pos.asset_a}-#{pos.asset_b}",
+      tier: pos.tier,
+      direction: "#{pos.direction}",
+      entry_z: pos.entry_z_score,
+      exit_z: pos.current_z_score,
+      entry_price_a: pos.entry_price_a,
+      entry_price_b: pos.entry_price_b,
+      exit_price_a: price_a,
+      exit_price_b: price_b,
+      hedge_ratio: pos.entry_hedge_ratio,
+      bars_held: pos.bars_held,
+      flip_count: pos.flip_count,
+      consecutive_losses: pos.consecutive_losses,
+      pnl_dollar: pnl && pnl.dollar_pnl,
+      pnl_pct: pnl && pnl.profit_pct,
+      reason: to_string(reason),
+      arb_reason: arb && arb.reason,
+      entry_time: pos.entry_time && DateTime.to_iso8601(pos.entry_time),
+      exit_time: DateTime.utc_now() |> DateTime.to_iso8601()
+    })
   end
 
   # ── FLIP EXECUTION: close old + open reversed ──────────────
@@ -845,12 +893,67 @@ defmodule AlpacaTrader.Engine do
 
   # ── ORDER PARAMS BUILDERS ──────────────────────────────────
 
-  defp order_notional(ctx) do
+  # Default (fixed) notional sizing. Takes optional arb so vol-scaled mode can
+  # compute a per-pair size based on spread volatility.
+  defp order_notional(ctx, arb \\ nil) do
     equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
     pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
-    notional = Float.round(equity * pct, 2)
+    fixed_notional = Float.round(equity * pct, 2)
+
+    notional =
+      case {position_sizing_mode(), arb} do
+        {:vol_scaled, %ArbitragePosition{tier: tier, asset: a, pair_asset: b, hedge_ratio: hr}}
+        when tier in [2, 3] and is_binary(a) and is_binary(b) ->
+          vol_scaled_notional(equity, a, b, hr, fixed_notional)
+
+        _ ->
+          fixed_notional
+      end
+
     # Alpaca minimum notional is $1
-    to_string(max(notional, 1.0))
+    to_string(max(Float.round(notional, 2), 1.0))
+  end
+
+  # Vol-scaled sizing: notional s.t. each position risks the same dollar amount.
+  # notional = (equity * target_risk_pct) / (spread_std_pct * stop_z)
+  # Clamped to [0.25x, 4x] of the fixed notional as a safety bound.
+  defp vol_scaled_notional(equity, asset_a, asset_b, hedge_ratio, fixed_notional) do
+    with {:ok, closes_a} <- BarsStore.get_closes(asset_a),
+         {:ok, closes_b} <- BarsStore.get_closes(asset_b),
+         true <- length(closes_a) >= 30 and length(closes_b) >= 30,
+         l = min(length(closes_a), length(closes_b)),
+         ca = Enum.take(closes_a, -l),
+         cb = Enum.take(closes_b, -l),
+         hr = hedge_ratio || SpreadCalculator.hedge_ratio(ca, cb) do
+      spread = SpreadCalculator.spread_series(ca, cb, hr)
+      n = length(spread)
+      mean_spread = Enum.sum(spread) / n
+      variance = Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean_spread, 2) end) / n
+      std = :math.sqrt(variance)
+      mean_price = Enum.sum(ca) / length(ca)
+
+      # Convert spread std (absolute) to a fraction of the asset price
+      spread_std_pct = if mean_price > 0, do: std / mean_price, else: 0.01
+
+      target_risk_pct = Application.get_env(:alpaca_trader, :target_risk_pct, 0.001)
+      stop_z = Application.get_env(:alpaca_trader, :stop_z_threshold, 4.0)
+
+      if spread_std_pct > 0 and stop_z > 0 do
+        raw = equity * target_risk_pct / (spread_std_pct * stop_z)
+        raw |> min(fixed_notional * 4.0) |> max(fixed_notional * 0.25)
+      else
+        fixed_notional
+      end
+    else
+      _ -> fixed_notional
+    end
+  end
+
+  defp position_sizing_mode do
+    case Application.get_env(:alpaca_trader, :position_sizing_mode, :fixed) do
+      mode when mode in [:fixed, :vol_scaled] -> mode
+      _ -> :fixed
+    end
   end
 
   defp build_entry_params(ctx, %ArbitragePosition{tier: 1} = arb) do
@@ -865,7 +968,7 @@ defmodule AlpacaTrader.Engine do
         :long_b_short_a -> {arb.pair_asset, arb.asset}
       end
 
-    notional = order_notional(ctx)
+    notional = order_notional(ctx, arb)
     %{pair: true, legs: [
       %{"symbol" => long_sym, "side" => "buy", "notional" => notional, "type" => "market", "pair_leg" => true},
       %{"symbol" => short_sym, "side" => "sell", "notional" => notional, "type" => "market", "pair_leg" => true}
@@ -882,7 +985,7 @@ defmodule AlpacaTrader.Engine do
         :long_b_short_a -> {arb.pair_asset, arb.asset}
       end
 
-    notional = order_notional(ctx)
+    notional = order_notional(ctx, arb)
     %{pair: true, legs: [
       %{"symbol" => sell_sym, "side" => "sell", "notional" => notional, "type" => "market", "pair_leg" => true},
       %{"symbol" => buy_sym, "side" => "buy", "notional" => notional, "type" => "market", "pair_leg" => true}

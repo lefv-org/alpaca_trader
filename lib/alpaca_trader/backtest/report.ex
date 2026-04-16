@@ -36,7 +36,18 @@ defmodule AlpacaTrader.Backtest.Report do
 
     avg_hold = mean_field(trades, :hold_bars)
 
-    total_return = Enum.reduce(trades, 0.0, fn t, acc -> acc + t.pnl_pct end)
+    # Prefer equity-curve endpoint for total return when available (handles
+    # portfolio aggregation correctly). Fall back to trade-sum for pure
+    # single-pair runs without a curve.
+    total_return =
+      case curve do
+        [_ | _] ->
+          {_, final_eq} = List.last(curve)
+          final_eq - 1.0
+
+        _ ->
+          Enum.reduce(trades, 0.0, fn t, acc -> acc + t.pnl_pct end)
+      end
 
     {max_dd, max_dd_duration} = max_drawdown_from_curve(curve)
 
@@ -76,31 +87,44 @@ defmodule AlpacaTrader.Backtest.Report do
 
   @doc """
   Aggregate multiple per-pair results into a portfolio-level report.
+
+  Assumes an equal-weight portfolio across the N pairs: each pair gets 1/N of
+  total capital. Builds a chronological equity curve from trade exits sorted
+  by exit_bar, with each trade's pnl_pct scaled by 1/N. This gives a realistic
+  portfolio-level max_drawdown and Sharpe.
+
+  Win rate / avg_win / avg_loss / profit_factor are computed across all
+  trades as-is (portfolio-independent statistics).
   """
   def aggregate(results) when is_list(results) do
+    non_empty = Enum.filter(results, fn r -> length(r[:trades] || []) > 0 end)
     all_trades = Enum.flat_map(results, fn r -> r[:trades] || [] end)
+    n_pairs = max(length(non_empty), 1)
 
-    unified_curve =
-      Enum.reduce(results, {0, []}, fn r, {offset, acc} ->
-        curve = r[:equity_curve] || []
-        # Sum equities per-bar index (simple superposition for independent pairs)
-        shifted = Enum.map(curve, fn {i, eq} -> {i + offset, eq - 1.0} end)
-        {offset, acc ++ shifted}
+    # Portfolio equity curve: trade exits chronologically, each trade
+    # contributing pnl_pct / n_pairs (equal-weight allocation).
+    sorted_trades = Enum.sort_by(all_trades, & &1.exit_bar)
+
+    {_final_eq, portfolio_curve} =
+      Enum.reduce(sorted_trades, {1.0, []}, fn t, {eq, acc} ->
+        new_eq = eq + t.pnl_pct / n_pairs
+        {new_eq, [{t.exit_bar, new_eq} | acc]}
       end)
-      |> elem(1)
 
-    # Rebuild portfolio equity curve by accumulating per-bar deltas
-    portfolio_curve =
-      unified_curve
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.reduce({1.0, []}, fn {i, delta}, {running, acc} ->
-        new_eq = running + delta
-        {new_eq, [{i, new_eq} | acc]}
+    summarize(%{trades: all_trades, equity_curve: Enum.reverse(portfolio_curve)})
+    |> Map.put(:n_pairs, n_pairs)
+    |> Map.put(:avg_return_per_pair, avg_return_per_pair(results))
+  end
+
+  defp avg_return_per_pair([]), do: 0.0
+  defp avg_return_per_pair(results) do
+    per_pair_returns =
+      results
+      |> Enum.map(fn r ->
+        Enum.reduce(r[:trades] || [], 0.0, fn t, acc -> acc + t.pnl_pct end)
       end)
-      |> elem(1)
-      |> Enum.reverse()
 
-    summarize(%{trades: all_trades, equity_curve: portfolio_curve})
+    Enum.sum(per_pair_returns) / length(per_pair_returns)
   end
 
   # ── helpers ────────────────────────────────────────────────

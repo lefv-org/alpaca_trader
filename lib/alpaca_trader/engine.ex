@@ -44,6 +44,8 @@ defmodule AlpacaTrader.Engine do
     shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
     buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
     notional         = params["notional"] && parse_float(params["notional"])
+    daytrade_count   = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
+    equity           = parse_float(get_in(ctx.account, ["equity"])) || 0.0
 
     held_qty =
       (ctx.positions || [])
@@ -53,12 +55,17 @@ defmodule AlpacaTrader.Engine do
         _ -> 0.0
       end
 
+    pdt_would_block = asset_class != "crypto" and equity < 25_000 and daytrade_count >= 3
+
     cond do
       not tradable? ->
         hold(ctx.symbol, "asset is not tradable")
 
       asset_class != "crypto" and not market_open? ->
         hold(ctx.symbol, "market is closed")
+
+      side == "sell" and pdt_would_block ->
+        hold(ctx.symbol, "PDT limit (#{trunc(daytrade_count)}/3 day trades, equity < $25k)")
 
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
         hold(ctx.symbol, "account does not support shorting")
@@ -128,6 +135,8 @@ defmodule AlpacaTrader.Engine do
     shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
     buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
     notional         = params["notional"] && parse_float(params["notional"])
+    daytrade_count   = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
+    equity           = parse_float(get_in(ctx.account, ["equity"])) || 0.0
 
     held_qty =
       (ctx.positions || [])
@@ -137,9 +146,13 @@ defmodule AlpacaTrader.Engine do
         _ -> 0.0
       end
 
+    # PDT protection: accounts under $25k with 3+ day trades can't sell equities
+    pdt_would_block = asset_class != "crypto" and equity < 25_000 and daytrade_count >= 3
+
     cond do
       not tradable? -> {:blocked, "not tradable"}
       asset_class != "crypto" and not market_open? -> {:blocked, "market closed"}
+      side == "sell" and pdt_would_block -> {:blocked, "PDT limit (#{trunc(daytrade_count)}/3 day trades)"}
       side == "sell" and held_qty <= 0 and not shorting_enabled? -> {:blocked, "no shorting"}
       side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
         {:blocked, "insufficient buying power"}

@@ -78,7 +78,7 @@
                       $<%= pos["unrealized_pl"] %>
                     </td>
                     <td class={["py-1 text-right", if(String.starts_with?(pos["unrealized_plpc"] || "0", "-"), do: "text-red-400", else: "text-green-400")]}>
-                      <%= Float.round(String.to_float(pos["unrealized_plpc"] || "0") * 100, 2) %>%
+                      <%= AlpacaTraderWeb.TradingLive.format_pct(pos["unrealized_plpc"]) %>%
                     </td>
                   </tr>
                 <% end %>

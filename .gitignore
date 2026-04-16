@@ -41,4 +41,9 @@ npm-debug.log
 # Trading session logs
 output.log
 arb_results.log
+*.log
 
+# Runtime-mutable state (not for version control)
+/priv/runtime/
+
+priv/gain_accumulator.json

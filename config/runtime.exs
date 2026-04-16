@@ -138,7 +138,7 @@ if config_env() != :test do
     alt_data_nasa_firms_enabled: System.get_env("ALT_DATA_NASA_FIRMS_ENABLED", "false") == "true",
     alt_data_nws_enabled: System.get_env("ALT_DATA_NWS_ENABLED", "false") == "true",
     alt_data_finnhub_enabled: System.get_env("ALT_DATA_FINNHUB_ENABLED", "false") == "true",
-    fred_api_key: System.get_env("FRED_API_KEY", "DEMO_KEY"),
+    fred_api_key: System.get_env("FRED_API_KEY"),
     nasa_firms_map_key: System.get_env("NASA_FIRMS_MAP_KEY"),
     finnhub_api_key: System.get_env("FINNHUB_API_KEY"),
     alt_data_opensky_poll_s: String.to_integer(System.get_env("ALT_DATA_OPENSKY_POLL_S", "900")),

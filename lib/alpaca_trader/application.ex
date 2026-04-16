@@ -22,6 +22,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.Polymarket.SignalGenerator,
       AlpacaTrader.AltData.SignalStore,
       AlpacaTrader.AltData.Supervisor,
+      AlpacaTrader.Scheduler.JobLocks,
       AlpacaTrader.Scheduler.Quantum,
       AlpacaTraderWeb.Endpoint
     ]
@@ -33,6 +34,8 @@ defmodule AlpacaTrader.Application do
     unless Application.get_env(:alpaca_trader, :skip_startup_sync, false) do
       AlpacaTrader.Scheduler.Jobs.AssetSyncJob.run()
       Task.start(fn -> AlpacaTrader.Scheduler.Jobs.BarsSyncJob.run() end)
+      # Reconcile before jobs run so orphan-blocking is in place from tick 1
+      AlpacaTrader.PositionReconciler.reconcile()
     end
 
     register_jobs()

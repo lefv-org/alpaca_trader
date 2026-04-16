@@ -21,9 +21,10 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
 
   test "first call snapshots principal and allows entry", %{tmp: tmp} do
     assert GainAccumulatorStore.allow_entry?(100.0)
-    assert GainAccumulatorStore.principal() == 100.0
+    assert Decimal.equal?(GainAccumulatorStore.principal(), Decimal.new("100.0"))
     assert File.exists?(tmp)
-    assert {:ok, %{"principal" => 100.0}} = Jason.decode(File.read!(tmp))
+    assert {:ok, %{"principal" => principal_str, "date" => _}} = Jason.decode(File.read!(tmp))
+    assert Decimal.equal?(Decimal.new(principal_str), Decimal.new("100.0"))
   end
 
   test "allows entry when loss is within fee tolerance" do

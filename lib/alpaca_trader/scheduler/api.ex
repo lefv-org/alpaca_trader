@@ -4,6 +4,7 @@ defmodule AlpacaTrader.Scheduler.Api do
   """
 
   alias AlpacaTrader.Scheduler.Quantum, as: Q
+  alias AlpacaTrader.Scheduler.JobLocks
 
   require Logger
 
@@ -13,9 +14,12 @@ defmodule AlpacaTrader.Scheduler.Api do
 
     case Crontab.CronExpression.Parser.parse(schedule) do
       {:ok, cron} ->
+        # Use the job module itself as Quantum's job name. Module atoms are
+        # guaranteed to already exist (the module is loaded to call .job_id()),
+        # so we avoid calling String.to_atom/1 on any string input.
         job =
           Q.new_job()
-          |> Quantum.Job.set_name(String.to_atom(job_id))
+          |> Quantum.Job.set_name(module)
           |> Quantum.Job.set_schedule(cron)
           |> Quantum.Job.set_task(fn -> execute_job(module) end)
 
@@ -30,23 +34,27 @@ defmodule AlpacaTrader.Scheduler.Api do
   end
 
   def execute_job(module) do
-    started = System.monotonic_time(:millisecond)
+    job_id = module.job_id()
 
-    try do
-      case module.run() do
-        :ok ->
-          log_duration(module, started, :ok)
+    if JobLocks.try_lock(job_id) do
+      started = System.monotonic_time(:millisecond)
 
-        {:ok, count} ->
-          log_duration(module, started, {:ok, count})
-
-        {:error, reason} ->
-          log_duration(module, started, {:error, reason})
+      try do
+        case module.run() do
+          :ok -> log_duration(module, started, :ok)
+          {:ok, count} -> log_duration(module, started, {:ok, count})
+          {:error, reason} -> log_duration(module, started, {:error, reason})
+        end
+      rescue
+        e ->
+          Logger.error("[Scheduler] #{job_id} crashed: #{inspect(e)}")
+          {:error, e}
+      after
+        JobLocks.unlock(job_id)
       end
-    rescue
-      e ->
-        Logger.error("[Scheduler] #{module.job_id()} crashed: #{inspect(e)}")
-        {:error, e}
+    else
+      Logger.warning("[Scheduler] #{job_id} skipped — previous run still in progress")
+      {:skipped, :overlap}
     end
   end
 

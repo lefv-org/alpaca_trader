@@ -8,6 +8,7 @@ defmodule AlpacaTrader.Engine do
   alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships, RotationEvaluator}
   alias AlpacaTrader.Arbitrage.SpreadCalculator
   alias AlpacaTrader.{BarsStore, PairPositionStore}
+  alias AlpacaTrader.Engine.OrderExecutor
 
   defmodule MarketContext do
     @derive Jason.Encoder
@@ -33,138 +34,13 @@ defmodule AlpacaTrader.Engine do
     defstruct [:scanned, :hits, :opportunities, :executed, :trades, :timestamp]
   end
 
-  # ── execute_trade ──────────────────────────────────────────
+  # Order submission primitives live in OrderExecutor. Kept as a delegate
+  # here so existing callers (tests, callers of Engine.execute_trade) are
+  # unaffected by the extraction.
+  defdelegate execute_trade(ctx, params), to: OrderExecutor
 
-  def execute_trade(%MarketContext{} = ctx, %{"side" => side} = params)
-      when side in ["buy", "sell"] do
-    asset_class      = get_in(ctx.asset, ["class"]) || "us_equity"
-    market_open?     = get_in(ctx.clock, ["is_open"]) == true
-    tradable?        = get_in(ctx.asset, ["tradable"]) == true
-    fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
-    shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
-    buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
-    notional         = params["notional"] && parse_float(params["notional"])
-    daytrade_count   = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
-    equity           = parse_float(get_in(ctx.account, ["equity"])) || 0.0
-
-    held_qty =
-      (ctx.positions || [])
-      |> Enum.find(fn p -> p["symbol"] == ctx.symbol end)
-      |> case do
-        %{"qty" => q} -> parse_float(q)
-        _ -> 0.0
-      end
-
-    pdt_would_block = asset_class != "crypto" and equity < 25_000 and daytrade_count >= 3
-
-    cond do
-      not tradable? ->
-        hold(ctx.symbol, "asset is not tradable")
-
-      asset_class != "crypto" and not market_open? ->
-        hold(ctx.symbol, "market is closed")
-
-      side == "sell" and pdt_would_block ->
-        hold(ctx.symbol, "PDT limit (#{trunc(daytrade_count)}/3 day trades, equity < $25k)")
-
-      side == "sell" and held_qty <= 0 and not shorting_enabled? ->
-        hold(ctx.symbol, "account does not support shorting")
-
-      side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
-        hold(ctx.symbol, "insufficient buying power: $#{Float.round(buying_power, 2)} < $#{notional} needed")
-
-      side == "buy" and notional != nil and not fractionable? ->
-        hold(ctx.symbol, "asset not fractionable, skipping notional order")
-
-      true ->
-        order_params = %{
-          symbol: ctx.symbol,
-          side: side,
-          type: params["type"] || "market",
-          time_in_force: params["time_in_force"] || if(asset_class == "crypto", do: "gtc", else: "day")
-        }
-
-        order_params = cond do
-          params["notional"] -> Map.put(order_params, :notional, params["notional"])
-          params["qty"]      -> Map.put(order_params, :qty, params["qty"])
-          true               -> Map.put(order_params, :qty, "1")
-        end
-
-        order_params = order_params
-        |> maybe_put(:limit_price, params["limit_price"])
-        |> maybe_put(:stop_price, params["stop_price"])
-
-        case AlpacaTrader.Alpaca.Client.create_order(order_params) do
-          {:ok, order} ->
-            action  = if(side == "buy", do: :bought, else: :sold)
-            emoji   = if side == "buy", do: "🟢", else: "🔴"
-            qty_str = if params["notional"], do: "$#{params["notional"]}", else: "qty=#{params["qty"]}"
-            Logger.info("[Trade] #{emoji} #{String.upcase(side)} #{ctx.symbol} #{qty_str} status=#{order["status"]}")
-            {:ok,
-             %PurchaseContext{
-               action: action,
-               symbol: ctx.symbol,
-               reason: "order #{order["status"]}",
-               qty: params["qty"] || params["notional"], side: side, order: order,
-               timestamp: DateTime.utc_now()
-             }}
-
-          {:error, err} ->
-            Logger.warning("[Trade] ⚠️  ORDER REJECTED #{ctx.symbol} side=#{side}: #{inspect(err) |> String.slice(0..80)}")
-            hold(ctx.symbol, "order rejected: #{inspect(err)}")
-        end
-    end
-  end
-
-  def execute_trade(%MarketContext{} = ctx, _params) do
-    hold(ctx.symbol, "invalid params — side must be buy or sell, qty required")
-  end
-
-  defp hold(symbol, reason) do
-    Logger.debug("[Trade] ⏸ HOLD #{symbol}: #{reason}")
-    {:ok, %PurchaseContext{action: :hold, symbol: symbol, reason: reason, timestamp: DateTime.utc_now()}}
-  end
-
-  # Dry-run validation: same checks as execute_trade but no order submission.
-  # Returns :ok or {:blocked, reason}.
-  defp preflight_leg(%MarketContext{} = ctx, %{"side" => side} = params) do
-    asset_class      = get_in(ctx.asset, ["class"]) || "us_equity"
-    market_open?     = get_in(ctx.clock, ["is_open"]) == true
-    tradable?        = get_in(ctx.asset, ["tradable"]) == true
-    fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
-    shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
-    buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
-    notional         = params["notional"] && parse_float(params["notional"])
-    daytrade_count   = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
-    equity           = parse_float(get_in(ctx.account, ["equity"])) || 0.0
-
-    held_qty =
-      (ctx.positions || [])
-      |> Enum.find(fn p -> p["symbol"] == ctx.symbol end)
-      |> case do
-        %{"qty" => q} -> parse_float(q)
-        _ -> 0.0
-      end
-
-    # PDT protection: accounts under $25k with 3+ day trades can't sell equities
-    pdt_would_block = asset_class != "crypto" and equity < 25_000 and daytrade_count >= 3
-
-    cond do
-      not tradable? -> {:blocked, "not tradable"}
-      asset_class != "crypto" and not market_open? -> {:blocked, "market closed"}
-      side == "sell" and pdt_would_block -> {:blocked, "PDT limit (#{trunc(daytrade_count)}/3 day trades)"}
-      side == "sell" and held_qty <= 0 and not shorting_enabled? -> {:blocked, "no shorting"}
-      side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
-        {:blocked, "insufficient buying power"}
-      side == "buy" and notional != nil and not fractionable? -> {:blocked, "not fractionable"}
-      true -> :ok
-    end
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, val), do: Map.put(map, key, val)
-
+  # parse_float is used by a handful of engine-local helpers (order_notional,
+  # etc). Keeping a private copy avoids a circular alias loop with OrderExecutor.
   defp parse_float(nil), do: nil
   defp parse_float(s) when is_binary(s) do
     case Float.parse(s) do
@@ -868,43 +744,16 @@ defmodule AlpacaTrader.Engine do
 
   defp execute_entry(ctx, arb) do
     order_params = build_entry_params(ctx, arb)
+    pair_label = "#{arb.asset}↔#{arb.pair_asset}"
 
     trades =
       case order_params do
         %{pair: true, legs: legs} ->
-          # Validate ALL legs can execute before submitting any orders.
-          # Without this, leg 1 (buy) succeeds but leg 2 (sell) fails due to
-          # PDT/shorting/market-closed, leaving an orphaned unhedged position.
-          leg_contexts = Enum.map(legs, fn leg ->
-            {build_leg_context(ctx, leg["symbol"]), leg}
-          end)
-
-          blockers = Enum.flat_map(leg_contexts, fn {leg_ctx, leg} ->
-            case preflight_leg(leg_ctx, leg) do
-              :ok -> []
-              {:blocked, reason} -> [{leg["symbol"], leg["side"], reason}]
-            end
-          end)
-
-          if blockers == [] do
-            Enum.map(leg_contexts, fn {leg_ctx, leg} ->
-              {:ok, purchase} = execute_trade(leg_ctx, leg)
-              purchase
-            end)
-          else
-            # Log once for the pair, not per-leg
-            blocked_desc = Enum.map_join(blockers, ", ", fn {sym, side, reason} ->
-              "#{sym}(#{side}): #{reason}"
-            end)
-            Logger.debug("[Trade] ⏸ HOLD pair #{arb.asset}↔#{arb.pair_asset}: #{blocked_desc}")
-            Enum.map(leg_contexts, fn {leg_ctx, _leg} ->
-              %PurchaseContext{action: :hold, symbol: leg_ctx.symbol, reason: "pair leg blocked", timestamp: DateTime.utc_now()}
-            end)
-          end
+          OrderExecutor.execute_pair_atomic(ctx, legs, pair_label, :entry)
 
         params ->
-          trade_ctx = build_leg_context(ctx, arb.asset)
-          {:ok, purchase} = execute_trade(trade_ctx, params)
+          trade_ctx = OrderExecutor.build_leg_context(ctx, arb.asset)
+          {:ok, purchase} = OrderExecutor.execute_trade(trade_ctx, params)
           [purchase]
       end
 
@@ -930,25 +779,27 @@ defmodule AlpacaTrader.Engine do
   defp execute_exit(ctx, arb) do
     # Close the position: reverse the original direction
     exit_params = build_exit_params(ctx, arb)
+    pair_label = "#{arb.asset}↔#{arb.pair_asset}"
 
     trades =
       case exit_params do
         %{pair: true, legs: legs} ->
-          Enum.map(legs, fn leg ->
-            leg_ctx = build_leg_context(ctx, leg["symbol"])
-            {:ok, purchase} = execute_trade(leg_ctx, leg)
-            purchase
-          end)
+          OrderExecutor.execute_pair_atomic(ctx, legs, pair_label, :exit)
 
         params ->
-          trade_ctx = build_leg_context(ctx, arb.asset)
-          {:ok, purchase} = execute_trade(trade_ctx, params)
+          trade_ctx = OrderExecutor.build_leg_context(ctx, arb.asset)
+          {:ok, purchase} = OrderExecutor.execute_trade(trade_ctx, params)
           [purchase]
       end
 
-    # Close the tracked position
-    pos = PairPositionStore.find_open_for_asset(arb.asset)
-    if pos, do: PairPositionStore.close_position(pos.id)
+    # Close the tracked position only if the exit actually executed.
+    # If both legs were blocked (e.g., PDT), leave the position open so a
+    # later tick can retry. Closing the tracker here would orphan the
+    # real broker-side position.
+    if OrderExecutor.pair_executed?(trades) do
+      pos = PairPositionStore.find_open_for_asset(arb.asset)
+      if pos, do: PairPositionStore.close_position(pos.id)
+    end
 
     trades
   end
@@ -958,14 +809,22 @@ defmodule AlpacaTrader.Engine do
   defp execute_flip(ctx, %ArbitragePosition{} = arb) do
     # Step 1: Close the current position (same as exit)
     exit_trades = execute_exit(ctx, arb)
+    exit_closed? = OrderExecutor.pair_executed?(exit_trades)
 
-    # Step 2: Open the reversed position
-    reversed_arb = %ArbitragePosition{arb | direction: arb.direction, action: :enter}
-    entry_trades = execute_entry(ctx, reversed_arb)
+    # Step 2: Open the reversed position — but only if the exit actually
+    # closed. If exit was blocked (PDT, etc.), entering here would leave us
+    # with TWO positions for the same asset: the original plus the reversed.
+    entry_trades =
+      if exit_closed? do
+        reversed_arb = %ArbitragePosition{arb | direction: arb.direction, action: :enter}
+        execute_entry(ctx, reversed_arb)
+      else
+        Logger.info("[Flip] exit blocked — skipping reversed entry for #{arb.asset}↔#{arb.pair_asset}")
+        []
+      end
 
     # Step 3: Track the flip in PairPositionStore
-    was_profitable =
-      Enum.any?(exit_trades, fn t -> t.action in [:bought, :sold] end)
+    was_profitable = exit_closed?
 
     case PairPositionStore.find_open_for_asset(arb.asset) do
       %PairPositionStore.PairPosition{} = pos ->
@@ -1185,18 +1044,4 @@ defmodule AlpacaTrader.Engine do
     }
   end
 
-  defp build_leg_context(%MarketContext{} = ctx, symbol) do
-    asset_data =
-      case AlpacaTrader.AssetStore.get(symbol) do
-        {:ok, a} -> a
-        :error -> %{"tradable" => true, "class" => "us_equity"}
-      end
-
-    %MarketContext{
-      ctx
-      | symbol: symbol,
-        asset: asset_data,
-        position: Enum.find(ctx.positions || [], fn p -> p["symbol"] == symbol end)
-    }
-  end
 end

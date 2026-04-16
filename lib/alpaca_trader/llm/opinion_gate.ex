@@ -114,7 +114,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
             {:halt, opinion}
 
           other ->
-            IO.puts("[LLM Gate] #{name} returned: #{inspect(other) |> String.slice(0..80)}")
+            Logger.warning("[LLM Gate] #{name} returned: #{inspect(other) |> String.slice(0..80)}")
             {:cont, fallback()}
         end
       rescue

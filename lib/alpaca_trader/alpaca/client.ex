@@ -1,13 +1,20 @@
 defmodule AlpacaTrader.Alpaca.Client do
   @moduledoc "Thin Req-based client for Alpaca Trading API v2."
 
+  # Hard ceilings. Without these, a hung Alpaca endpoint blocks the caller
+  # indefinitely; the minute-cadence arbitrage scan then queues up forever.
+  @connect_timeout_ms 5_000
+  @receive_timeout_ms 10_000
+
   defp client do
     opts = [
       base_url: Application.fetch_env!(:alpaca_trader, :alpaca_base_url),
       headers: [
         {"APCA-API-KEY-ID", Application.fetch_env!(:alpaca_trader, :alpaca_key_id)},
         {"APCA-API-SECRET-KEY", Application.fetch_env!(:alpaca_trader, :alpaca_secret_key)}
-      ]
+      ],
+      receive_timeout: @receive_timeout_ms,
+      connect_options: [timeout: @connect_timeout_ms]
     ]
 
     case Application.get_env(:alpaca_trader, :req_plug) do
@@ -93,7 +100,9 @@ defmodule AlpacaTrader.Alpaca.Client do
       headers: [
         {"APCA-API-KEY-ID", Application.fetch_env!(:alpaca_trader, :alpaca_key_id)},
         {"APCA-API-SECRET-KEY", Application.fetch_env!(:alpaca_trader, :alpaca_secret_key)}
-      ]
+      ],
+      receive_timeout: @receive_timeout_ms,
+      connect_options: [timeout: @connect_timeout_ms]
     ]
 
     case Application.get_env(:alpaca_trader, :req_plug) do

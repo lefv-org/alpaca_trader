@@ -68,4 +68,15 @@ defmodule AlpacaTrader.Backtest.WhitelistGeneratorTest do
     assert accepted == []
     assert PairWhitelist.size() == 0
   end
+
+  test "rejects pairs below :min_net_sharpe" do
+    robustness = [
+      %{pair: "A-B", n_windows: 5, wins: 4, win_ratio: 0.8, avg_window_return: 0.01, total_trades: 10, sharpe_window_annualized: 0.5, per_window_returns: [0.01, 0.02, -0.01, 0.03, 0.01]},
+      %{pair: "C-D", n_windows: 5, wins: 4, win_ratio: 0.8, avg_window_return: 0.01, total_trades: 10, sharpe_window_annualized: 0.1, per_window_returns: [0.01, 0.001, -0.005, 0.01, 0.005]}
+    ]
+
+    wf_result = %{per_pair_robustness: robustness}
+    {:ok, accepted} = AlpacaTrader.Backtest.WhitelistGenerator.generate(wf_result, min_net_sharpe: 0.4)
+    assert accepted == [{"A", "B"}]
+  end
 end

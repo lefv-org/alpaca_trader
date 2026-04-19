@@ -7,6 +7,10 @@ defmodule AlpacaTrader.Backtest.WhitelistGenerator do
   - Require `avg_window_return > :min_avg_return` (default 0.0)
   - Require `total_trades >= :min_trades` (default 3)
   - Require `n_windows >= :min_windows` (default 3)
+  - Optional `:min_net_sharpe` — rejects pairs whose
+    `sharpe_window_annualized` (computed by `WalkForward` from
+    slippage-adjusted per-window returns) falls below the threshold. `nil`
+    (default) disables this gate.
 
   Writes the resulting list via `PairWhitelist.replace/1`, which persists
   to `priv/runtime/pair_whitelist.json`.
@@ -26,6 +30,7 @@ defmodule AlpacaTrader.Backtest.WhitelistGenerator do
     min_avg_return = Keyword.get(opts, :min_avg_return, 0.0)
     min_trades = Keyword.get(opts, :min_trades, 3)
     min_windows = Keyword.get(opts, :min_windows, 3)
+    min_net_sharpe = Keyword.get(opts, :min_net_sharpe, nil)
 
     robustness = walk_forward_result[:per_pair_robustness] || []
 
@@ -34,7 +39,8 @@ defmodule AlpacaTrader.Backtest.WhitelistGenerator do
         r.n_windows >= min_windows and
           r.total_trades >= min_trades and
           r.win_ratio >= min_win_ratio and
-          r.avg_window_return > min_avg_return
+          r.avg_window_return > min_avg_return and
+          (is_nil(min_net_sharpe) or Map.get(r, :sharpe_window_annualized, 0.0) >= min_net_sharpe)
       end)
 
     tuples =
@@ -48,10 +54,13 @@ defmodule AlpacaTrader.Backtest.WhitelistGenerator do
 
     PairWhitelist.replace(tuples)
 
+    sharpe_clause =
+      if is_nil(min_net_sharpe), do: "", else: ", net_sharpe≥#{min_net_sharpe}"
+
     Logger.info(
       "[WhitelistGenerator] wrote #{length(tuples)} pairs " <>
         "(from #{length(robustness)} evaluated, win_ratio≥#{min_win_ratio}, " <>
-        "avg_ret>#{min_avg_return}, trades≥#{min_trades})"
+        "avg_ret>#{min_avg_return}, trades≥#{min_trades}#{sharpe_clause})"
     )
 
     {:ok, tuples}

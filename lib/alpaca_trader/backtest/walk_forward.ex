@@ -134,6 +134,22 @@ defmodule AlpacaTrader.Backtest.WalkForward do
       wins = Enum.count(per_window_returns, &(&1 > 0))
       n = length(per_window_returns)
 
+      sharpe_window_annualized =
+        cond do
+          n <= 1 ->
+            0.0
+
+          true ->
+            mean = Enum.sum(per_window_returns) / n
+
+            var =
+              Enum.reduce(per_window_returns, 0.0, fn r, acc -> acc + :math.pow(r - mean, 2) end) /
+                (n - 1)
+
+            std = :math.sqrt(var)
+            if std > 0, do: Float.round(mean / std * :math.sqrt(12), 4), else: 0.0
+        end
+
       %{
         pair: pair_name,
         n_windows: n,
@@ -141,7 +157,8 @@ defmodule AlpacaTrader.Backtest.WalkForward do
         win_ratio: if(n > 0, do: wins / n, else: 0.0),
         avg_window_return: if(n > 0, do: Enum.sum(per_window_returns) / n, else: 0.0),
         total_trades: total_trades,
-        per_window_returns: per_window_returns
+        per_window_returns: per_window_returns,
+        sharpe_window_annualized: sharpe_window_annualized
       }
     end)
     |> Enum.sort_by(&(-&1.win_ratio))

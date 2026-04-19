@@ -46,11 +46,23 @@ defmodule AlpacaTrader.Arbitrage.BellmanFord do
           if bid > 0 and ask > 0 do
             [
               # Buy base: quote → base (use ask price)
-              %{from: quote_c, to: base, weight: -:math.log((1.0 / ask) * (1.0 - fee)),
-                rate: (1.0 / ask) * (1.0 - fee), pair: pair, side: "buy"},
+              %{
+                from: quote_c,
+                to: base,
+                weight: -:math.log(1.0 / ask * (1.0 - fee)),
+                rate: 1.0 / ask * (1.0 - fee),
+                pair: pair,
+                side: "buy"
+              },
               # Sell base: base → quote (use bid price)
-              %{from: base, to: quote_c, weight: -:math.log(bid * (1.0 - fee)),
-                rate: bid * (1.0 - fee), pair: pair, side: "sell"}
+              %{
+                from: base,
+                to: quote_c,
+                weight: -:math.log(bid * (1.0 - fee)),
+                rate: bid * (1.0 - fee),
+                pair: pair,
+                side: "sell"
+              }
             ]
           else
             []

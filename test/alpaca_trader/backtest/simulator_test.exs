@@ -62,8 +62,14 @@ defmodule AlpacaTrader.Backtest.SimulatorTest do
     test "rejects non-cointegrated pair when gate is enabled" do
       # Two independent random walks = no cointegration
       :rand.seed(:exsplus, {1, 2, 3})
-      ca = Enum.reduce(1..300, [100.0], fn _, [p | _] = acc -> [p + :rand.normal() | acc] end) |> Enum.reverse()
-      cb = Enum.reduce(1..300, [100.0], fn _, [p | _] = acc -> [p + :rand.normal() | acc] end) |> Enum.reverse()
+
+      ca =
+        Enum.reduce(1..300, [100.0], fn _, [p | _] = acc -> [p + :rand.normal() | acc] end)
+        |> Enum.reverse()
+
+      cb =
+        Enum.reduce(1..300, [100.0], fn _, [p | _] = acc -> [p + :rand.normal() | acc] end)
+        |> Enum.reverse()
 
       result =
         Simulator.run_pair("RW/RW", ca, cb, %{

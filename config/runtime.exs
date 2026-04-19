@@ -119,17 +119,21 @@ if config_env() != :test do
     # OpenRouter (free cloud)
     llm_use_openrouter: System.get_env("LLM_USE_OPENROUTER", "false") == "true",
     openrouter_base_url: System.get_env("OPENROUTER_BASE_URL", "https://openrouter.ai/api"),
-    openrouter_model: System.get_env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+    openrouter_model:
+      System.get_env("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
     openrouter_api_key: System.get_env("OPENROUTER_API_KEY"),
     # Anthropic (cloud)
     anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
     anthropic_base_url: System.get_env("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
     anthropic_model: System.get_env("ANTHROPIC_MODEL", "claude-3-haiku-20240307"),
     # Polymarket signal feed
-    polymarket_gamma_url: System.get_env("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com"),
+    polymarket_gamma_url:
+      System.get_env("POLYMARKET_GAMMA_URL", "https://gamma-api.polymarket.com"),
     polymarket_clob_url: System.get_env("POLYMARKET_CLOB_URL", "https://clob.polymarket.com"),
-    polymarket_poll_interval_ms: String.to_integer(System.get_env("POLYMARKET_POLL_INTERVAL_S", "30")) * 1000,
-    polymarket_shift_threshold: String.to_float(System.get_env("POLYMARKET_SHIFT_THRESHOLD", "0.10")),
+    polymarket_poll_interval_ms:
+      String.to_integer(System.get_env("POLYMARKET_POLL_INTERVAL_S", "30")) * 1000,
+    polymarket_shift_threshold:
+      String.to_float(System.get_env("POLYMARKET_SHIFT_THRESHOLD", "0.10")),
     polymarket_min_volume: String.to_integer(System.get_env("POLYMARKET_MIN_VOLUME", "5000")),
     # Alternative data providers
     alt_data_fred_enabled: System.get_env("ALT_DATA_FRED_ENABLED", "false") == "true",
@@ -143,13 +147,15 @@ if config_env() != :test do
     finnhub_api_key: System.get_env("FINNHUB_API_KEY"),
     alt_data_opensky_poll_s: String.to_integer(System.get_env("ALT_DATA_OPENSKY_POLL_S", "900")),
     alt_data_finnhub_poll_s: String.to_integer(System.get_env("ALT_DATA_FINNHUB_POLL_S", "300")),
-    alt_data_suppress_threshold: String.to_float(System.get_env("ALT_DATA_SUPPRESS_THRESHOLD", "0.6")),
+    alt_data_suppress_threshold:
+      String.to_float(System.get_env("ALT_DATA_SUPPRESS_THRESHOLD", "0.6")),
     alt_data_entry_threshold: String.to_float(System.get_env("ALT_DATA_ENTRY_THRESHOLD", "0.65")),
     # Position sizing (:fixed keeps existing behavior; :vol_scaled uses spread std)
-    position_sizing_mode: (case System.get_env("POSITION_SIZING_MODE", "fixed") do
-                             "vol_scaled" -> :vol_scaled
-                             _ -> :fixed
-                           end),
+    position_sizing_mode:
+      (case System.get_env("POSITION_SIZING_MODE", "fixed") do
+         "vol_scaled" -> :vol_scaled
+         _ -> :fixed
+       end),
     target_risk_pct: String.to_float(System.get_env("TARGET_RISK_PCT", "0.001")),
     stop_z_threshold: String.to_float(System.get_env("STOP_Z_THRESHOLD", "4.0")),
     # Pair cointegration gate (ADF + half-life + Hurst)
@@ -157,28 +163,35 @@ if config_env() != :test do
     pair_max_half_life_bars: String.to_integer(System.get_env("PAIR_MAX_HALF_LIFE_BARS", "60")),
     pair_max_hurst: String.to_float(System.get_env("PAIR_MAX_HURST", "0.75")),
     # Hedge ratio mode: :ols (static) or :kalman (dynamic)
-    hedge_ratio_mode: (case System.get_env("HEDGE_RATIO_MODE", "ols") do
-                        "kalman" -> :kalman
-                        _ -> :ols
-                      end),
+    hedge_ratio_mode:
+      (case System.get_env("HEDGE_RATIO_MODE", "ols") do
+         "kalman" -> :kalman
+         _ -> :ols
+       end),
     # Portfolio-level gates
-    portfolio_max_open_positions: String.to_integer(System.get_env("PORTFOLIO_MAX_OPEN_POSITIONS", "10")),
+    portfolio_max_open_positions:
+      String.to_integer(System.get_env("PORTFOLIO_MAX_OPEN_POSITIONS", "10")),
     portfolio_max_per_sector: String.to_integer(System.get_env("PORTFOLIO_MAX_PER_SECTOR", "8")),
-    portfolio_max_capital_at_risk_pct: String.to_float(System.get_env("PORTFOLIO_MAX_CAPITAL_AT_RISK_PCT", "0.5")),
+    portfolio_max_capital_at_risk_pct:
+      String.to_float(System.get_env("PORTFOLIO_MAX_CAPITAL_AT_RISK_PCT", "0.5")),
     # Order type — :market (historical default) or :marketable_limit
-    order_type_mode: (case System.get_env("ORDER_TYPE_MODE", "market") do
-                       "marketable_limit" -> :marketable_limit
-                       _ -> :market
-                     end),
-    order_marketable_limit_tolerance_bps: String.to_integer(System.get_env("ORDER_MARKETABLE_LIMIT_TOLERANCE_BPS", "50")),
+    order_type_mode:
+      (case System.get_env("ORDER_TYPE_MODE", "market") do
+         "marketable_limit" -> :marketable_limit
+         _ -> :market
+       end),
+    order_marketable_limit_tolerance_bps:
+      String.to_integer(System.get_env("ORDER_MARKETABLE_LIMIT_TOLERANCE_BPS", "50")),
     # Spread multiplier k for `build_order/3` marketable-limit mode:
     #   buy  limit_price = ask + k * (ask - bid)
     #   sell limit_price = bid - k * (ask - bid)
-    marketable_limit_spread_mult: String.to_float(System.get_env("MARKETABLE_LIMIT_SPREAD_MULT", "0.25")),
+    marketable_limit_spread_mult:
+      String.to_float(System.get_env("MARKETABLE_LIMIT_SPREAD_MULT", "0.25")),
     # Pair whitelist: only allow pairs that appear robust in walk-forward.
     # Off by default — set to true after populating priv/runtime/pair_whitelist.json.
     pair_whitelist_enabled: System.get_env("PAIR_WHITELIST_ENABLED", "false") == "true",
-    pair_whitelist_path: System.get_env("PAIR_WHITELIST_PATH", "priv/runtime/pair_whitelist.json"),
+    pair_whitelist_path:
+      System.get_env("PAIR_WHITELIST_PATH", "priv/runtime/pair_whitelist.json"),
     # Weekly PairRecointegrationJob: how many recent bars to re-ADF against.
     recointegration_lookback_bars:
       String.to_integer(System.get_env("RECOINTEGRATION_LOOKBACK_BARS", "500")),

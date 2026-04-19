@@ -118,7 +118,10 @@ defmodule AlpacaTrader.BarsStoreTest do
     test "truncates to the last n returns" do
       closes =
         for i <- 0..9 do
-          %{"t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z", "c" => 100.0 + i}
+          %{
+            "t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z",
+            "c" => 100.0 + i
+          }
         end
 
       BarsStore.put_all_bars(%{"AAPL" => closes})
@@ -148,7 +151,10 @@ defmodule AlpacaTrader.BarsStoreTest do
     test "truncates to the last n closes" do
       closes =
         for i <- 0..9 do
-          %{"t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z", "c" => 100.0 + i}
+          %{
+            "t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z",
+            "c" => 100.0 + i
+          }
         end
 
       BarsStore.put_all_bars(%{"AAPL" => closes})

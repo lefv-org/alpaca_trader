@@ -90,8 +90,7 @@ defmodule AlpacaTrader.PortfolioRisk do
           series: series,
           correlation_threshold:
             Application.get_env(:alpaca_trader, :cluster_corr_threshold, 0.8),
-          max_per_cluster:
-            Application.get_env(:alpaca_trader, :max_pairs_per_cluster, 3)
+          max_per_cluster: Application.get_env(:alpaca_trader, :max_pairs_per_cluster, 3)
         ]
 
         case AlpacaTrader.Arbitrage.ClusterLimiter.allow_entry?(arb_pair, open, opts) do
@@ -99,8 +98,7 @@ defmodule AlpacaTrader.PortfolioRisk do
             :ok
 
           {:blocked, {:cluster_full, members}} ->
-            {:blocked,
-             "cluster exposure cap reached (members: #{Enum.join(members, ", ")})"}
+            {:blocked, "cluster exposure cap reached (members: #{Enum.join(members, ", ")})"}
         end
       end
     else

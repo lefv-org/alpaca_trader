@@ -16,13 +16,18 @@ defmodule AlpacaTrader.AltData.Providers.Nws do
 
   # Severe event types that move markets
   @market_events MapSet.new([
-    "Hurricane Warning", "Hurricane Watch",
-    "Tropical Storm Warning", "Tropical Storm Watch",
-    "Storm Surge Warning", "Storm Surge Watch",
-    "Extreme Wind Warning", "Tornado Warning",
-    "Flash Flood Emergency", "Ice Storm Warning",
-    "Blizzard Warning"
-  ])
+                   "Hurricane Warning",
+                   "Hurricane Watch",
+                   "Tropical Storm Warning",
+                   "Tropical Storm Watch",
+                   "Storm Surge Warning",
+                   "Storm Surge Watch",
+                   "Extreme Wind Warning",
+                   "Tornado Warning",
+                   "Flash Flood Emergency",
+                   "Ice Storm Warning",
+                   "Blizzard Warning"
+                 ])
 
   @impl true
   def provider_id, do: :nws
@@ -34,8 +39,12 @@ defmodule AlpacaTrader.AltData.Providers.Nws do
   def fetch do
     headers = [{"user-agent", "(alpaca_trader, contact@example.com)"}]
 
-    case Req.get(Req.new(), url: @base_url, params: [area: @watch_areas],
-           headers: headers, receive_timeout: 10_000) do
+    case Req.get(Req.new(),
+           url: @base_url,
+           params: [area: @watch_areas],
+           headers: headers,
+           receive_timeout: 10_000
+         ) do
       {:ok, %{status: 200, body: %{"features" => features}}} ->
         signals =
           features
@@ -69,20 +78,16 @@ defmodule AlpacaTrader.AltData.Providers.Nws do
     {direction, strength, symbols} =
       cond do
         is_hurricane ->
-          {:bearish, 0.9,
-           ["XOM", "CVX", "VLO", "PBF", "ALL", "TRV", "CB", "HD", "LOW", "GNRC"]}
+          {:bearish, 0.9, ["XOM", "CVX", "VLO", "PBF", "ALL", "TRV", "CB", "HD", "LOW", "GNRC"]}
 
         is_tropical ->
-          {:bearish, 0.7,
-           ["XOM", "CVX", "VLO", "ALL", "TRV"]}
+          {:bearish, 0.7, ["XOM", "CVX", "VLO", "ALL", "TRV"]}
 
         severity == "Extreme" ->
-          {:bearish, 0.8,
-           ["XLE", "XLU", "ALL", "TRV"]}
+          {:bearish, 0.8, ["XLE", "XLU", "ALL", "TRV"]}
 
         true ->
-          {:bearish, 0.5,
-           ["XLE", "XLU"]}
+          {:bearish, 0.5, ["XLE", "XLU"]}
       end
 
     short_areas = areas |> String.split(";") |> Enum.take(3) |> Enum.join(", ")

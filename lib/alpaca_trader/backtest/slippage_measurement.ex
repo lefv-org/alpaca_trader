@@ -134,6 +134,7 @@ defmodule AlpacaTrader.Backtest.SlippageMeasurement do
   defp recommendation(mean, _, _) when is_number(mean) do
     # Recommend +50% headroom for backtest realism
     rec = Float.round(mean * 1.5, 0)
+
     "Measured mean slippage: #{Float.round(mean, 1)}bps one-way. Recommend backtest slippage_bps=#{rec} for realism (50% headroom)."
   end
 

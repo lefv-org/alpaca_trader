@@ -29,10 +29,12 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   # ETS is :public so cache reads/writes are safe from any process.
   def evaluate(arb, ctx) do
     key = cache_key(arb)
+
     case check_cache(key) do
       {:ok, cached} ->
         GenServer.cast(__MODULE__, :hit)
         {:ok, cached}
+
       :miss ->
         opinion = call_with_failover(arb, ctx)
         cache(key, opinion)
@@ -46,7 +48,9 @@ defmodule AlpacaTrader.LLM.OpinionGate do
   def call_count, do: GenServer.call(__MODULE__, :call_count)
   def enabled?, do: true
   def min_conviction, do: @min_conviction
-  def fallback, do: %{decision: "confirm", conviction: 0.5, reasoning: "LLM unavailable", risk_flags: []}
+
+  def fallback,
+    do: %{decision: "confirm", conviction: 0.5, reasoning: "LLM unavailable", risk_flags: []}
 
   # ── GenServer ──────────────────────────────────────────────
 
@@ -72,36 +76,44 @@ defmodule AlpacaTrader.LLM.OpinionGate do
       [
         {Application.get_env(:alpaca_trader, :llm_use_mlx, false),
          {:mlx, &call_openai_compatible/5,
-           Application.get_env(:alpaca_trader, :llm_base_url, "http://localhost:8080"),
-           Application.get_env(:alpaca_trader, :llm_model, "mlx-community/Phi-3.5-mini-instruct-4bit"),
-           nil, 8_000}},
+          Application.get_env(:alpaca_trader, :llm_base_url, "http://localhost:8080"),
+          Application.get_env(
+            :alpaca_trader,
+            :llm_model,
+            "mlx-community/Phi-3.5-mini-instruct-4bit"
+          ), nil, 8_000}},
         {Application.get_env(:alpaca_trader, :llm_use_ollama, false),
          {:ollama, &call_openai_compatible/5,
-           Application.get_env(:alpaca_trader, :ollama_base_url, "https://ollama.lefv.info"),
-           Application.get_env(:alpaca_trader, :ollama_model, "qwen3:8b"),
-           Application.get_env(:alpaca_trader, :ollama_api_key),
-           Application.get_env(:alpaca_trader, :ollama_timeout_ms, 30_000)}},
+          Application.get_env(:alpaca_trader, :ollama_base_url, "https://ollama.lefv.info"),
+          Application.get_env(:alpaca_trader, :ollama_model, "qwen3:8b"),
+          Application.get_env(:alpaca_trader, :ollama_api_key),
+          Application.get_env(:alpaca_trader, :ollama_timeout_ms, 30_000)}},
         {Application.get_env(:alpaca_trader, :llm_use_cerebras, false),
          {:cerebras, &call_openai_compatible/5,
-           Application.get_env(:alpaca_trader, :cerebras_base_url, "https://api.cerebras.ai"),
-           Application.get_env(:alpaca_trader, :cerebras_model, "llama3.1-8b"),
-           Application.get_env(:alpaca_trader, :cerebras_api_key), 10_000}},
+          Application.get_env(:alpaca_trader, :cerebras_base_url, "https://api.cerebras.ai"),
+          Application.get_env(:alpaca_trader, :cerebras_model, "llama3.1-8b"),
+          Application.get_env(:alpaca_trader, :cerebras_api_key), 10_000}},
         {Application.get_env(:alpaca_trader, :llm_use_openrouter, false),
          {:openrouter, &call_openai_compatible/5,
-           Application.get_env(:alpaca_trader, :openrouter_base_url, "https://openrouter.ai/api"),
-           Application.get_env(:alpaca_trader, :openrouter_model, "meta-llama/llama-3.3-70b-instruct:free"),
-           Application.get_env(:alpaca_trader, :openrouter_api_key), 15_000}},
+          Application.get_env(:alpaca_trader, :openrouter_base_url, "https://openrouter.ai/api"),
+          Application.get_env(
+            :alpaca_trader,
+            :openrouter_model,
+            "meta-llama/llama-3.3-70b-instruct:free"
+          ), Application.get_env(:alpaca_trader, :openrouter_api_key), 15_000}},
         {Application.get_env(:alpaca_trader, :llm_use_anthropic, false),
          {:anthropic, &call_anthropic/5,
-           Application.get_env(:alpaca_trader, :anthropic_base_url, "https://api.anthropic.com"),
-           Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20251001"),
-           Application.get_env(:alpaca_trader, :anthropic_api_key), 10_000}}
+          Application.get_env(:alpaca_trader, :anthropic_base_url, "https://api.anthropic.com"),
+          Application.get_env(:alpaca_trader, :anthropic_model, "claude-haiku-4-5-20251001"),
+          Application.get_env(:alpaca_trader, :anthropic_api_key), 10_000}}
       ]
       |> Enum.filter(fn {enabled, _} -> enabled end)
       |> Enum.map(fn {_, provider} -> provider end)
 
     if providers == [] do
-      Logger.warning("[LLM Gate] no providers enabled — set LLM_USE_MLX, LLM_USE_OLLAMA, or LLM_USE_ANTHROPIC")
+      Logger.warning(
+        "[LLM Gate] no providers enabled — set LLM_USE_MLX, LLM_USE_OLLAMA, or LLM_USE_ANTHROPIC"
+      )
     end
 
     prompt = build_prompt(arb, ctx)
@@ -110,11 +122,17 @@ defmodule AlpacaTrader.LLM.OpinionGate do
       try do
         case call_fn.(url, model, key, prompt, timeout) do
           %{decision: _} = opinion ->
-            Logger.info("[LLM Gate] #{name}: #{opinion.decision} conviction=#{opinion.conviction}")
+            Logger.info(
+              "[LLM Gate] #{name}: #{opinion.decision} conviction=#{opinion.conviction}"
+            )
+
             {:halt, opinion}
 
           other ->
-            Logger.warning("[LLM Gate] #{name} returned: #{inspect(other) |> String.slice(0..80)}")
+            Logger.warning(
+              "[LLM Gate] #{name} returned: #{inspect(other) |> String.slice(0..80)}"
+            )
+
             {:cont, fallback()}
         end
       rescue
@@ -145,12 +163,19 @@ defmodule AlpacaTrader.LLM.OpinionGate do
       ]
     }
 
-    case Req.post("#{base_url}/v1/chat/completions", json: body, headers: headers, receive_timeout: timeout, retry: false) do
+    case Req.post("#{base_url}/v1/chat/completions",
+           json: body,
+           headers: headers,
+           receive_timeout: timeout,
+           retry: false
+         ) do
       {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => text}} | _]}}} ->
         result = parse_opinion(text)
+
         if result == nil do
           Logger.warning("[LLM Gate] PARSE FAIL: #{String.slice(text, 0..200)}")
         end
+
         result
 
       {:ok, %{status: status}} ->
@@ -184,15 +209,22 @@ defmodule AlpacaTrader.LLM.OpinionGate do
     }
 
     case Req.post("#{base_url}/v1/messages",
-      json: body,
-      headers: [{"x-api-key", api_key}, {"anthropic-version", "2023-06-01"}, {"content-type", "application/json"}],
-      receive_timeout: timeout
-    ) do
+           json: body,
+           headers: [
+             {"x-api-key", api_key},
+             {"anthropic-version", "2023-06-01"},
+             {"content-type", "application/json"}
+           ],
+           receive_timeout: timeout
+         ) do
       {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
         parse_opinion(text)
 
       {:ok, %{status: status, body: body}} ->
-        Logger.warning("[LLM Gate] Anthropic HTTP #{status}: #{inspect(body) |> String.slice(0..200)}")
+        Logger.warning(
+          "[LLM Gate] Anthropic HTTP #{status}: #{inspect(body) |> String.slice(0..200)}"
+        )
+
         nil
 
       {:error, reason} ->
@@ -205,30 +237,36 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   defp system_prompt do
     "You are a quantitative trading analyst scoring statistical arbitrage signals. " <>
-    "Crypto trades 24/7 regardless of stock market hours. " <>
-    "A z-score above 2.0 is a valid entry signal. Higher z-score = stronger signal. " <>
-    "Respond ONLY with raw JSON: {\"decision\":\"confirm\",\"conviction\":0.7,\"reasoning\":\"...\",\"risk_flags\":[]}"
+      "Crypto trades 24/7 regardless of stock market hours. " <>
+      "A z-score above 2.0 is a valid entry signal. Higher z-score = stronger signal. " <>
+      "Respond ONLY with raw JSON: {\"decision\":\"confirm\",\"conviction\":0.7,\"reasoning\":\"...\",\"risk_flags\":[]}"
   end
 
   defp build_prompt(arb, _ctx) do
-    is_crypto = String.contains?(arb.asset || "", "/") or String.contains?(arb.pair_asset || "", "/")
+    is_crypto =
+      String.contains?(arb.asset || "", "/") or String.contains?(arb.pair_asset || "", "/")
+
     n = length(AlpacaTrader.PairPositionStore.open_positions())
+
     "#{arb.asset} / #{arb.pair_asset || "-"} | #{arb.direction} | z=#{arb.z_score || "-"} | tier #{arb.tier} | #{arb.action} | #{if is_crypto, do: "CRYPTO (24/7)", else: "EQUITY"} | #{n} open positions\n#{arb.reason}\nScore this signal. JSON only."
   end
 
   defp parse_opinion(text) do
-    cleaned = text
+    cleaned =
+      text
       |> String.replace(~r/```json\n?/, "")
       |> String.replace(~r/```\n?/, "")
       |> String.trim()
 
     # Try full JSON parse first
-    result = case Jason.decode(cleaned) do
-      {:ok, %{"decision" => d, "conviction" => c}} when is_number(c) ->
-        %{decision: d, conviction: min(max(c * 1.0, 0.0), 1.0),
-          reasoning: "", risk_flags: []}
-      _ -> nil
-    end
+    result =
+      case Jason.decode(cleaned) do
+        {:ok, %{"decision" => d, "conviction" => c}} when is_number(c) ->
+          %{decision: d, conviction: min(max(c * 1.0, 0.0), 1.0), reasoning: "", risk_flags: []}
+
+        _ ->
+          nil
+      end
 
     # Fallback: extract with regex (handles truncated JSON from max_tokens)
     result || extract_with_regex(cleaned)
@@ -236,16 +274,19 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   defp extract_with_regex(text) do
     # Try exact key names first, then fuzzy matches
-    decision = case Regex.run(~r/"decision"\s*:\s*"(\w+)"/i, text) do
-      [_, d] -> normalize_decision(d)
-      _ ->
-        cond do
-          Regex.match?(~r/confirm/i, text) -> "confirm"
-          Regex.match?(~r/suppress/i, text) -> "suppress"
-          Regex.match?(~r/reduce/i, text) -> "reduce"
-          true -> nil
-        end
-    end
+    decision =
+      case Regex.run(~r/"decision"\s*:\s*"(\w+)"/i, text) do
+        [_, d] ->
+          normalize_decision(d)
+
+        _ ->
+          cond do
+            Regex.match?(~r/confirm/i, text) -> "confirm"
+            Regex.match?(~r/suppress/i, text) -> "suppress"
+            Regex.match?(~r/reduce/i, text) -> "reduce"
+            true -> nil
+          end
+      end
 
     # Try conviction, confidence, score — any numeric score field
     conviction = extract_score(text)
@@ -267,6 +308,7 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   defp normalize_decision(d) do
     d = String.downcase(d)
+
     cond do
       String.starts_with?(d, "confirm") -> "confirm"
       String.starts_with?(d, "suppress") -> "suppress"
@@ -292,7 +334,9 @@ defmodule AlpacaTrader.LLM.OpinionGate do
             {f, _} when f > 1.0 and f <= 100.0 -> f / 100.0
             _ -> nil
           end
-        _ -> nil
+
+        _ ->
+          nil
       end
     end)
   end
@@ -306,10 +350,14 @@ defmodule AlpacaTrader.LLM.OpinionGate do
 
   defp check_cache(key) do
     case :ets.lookup(@cache_table, key) do
-      [{^key, op, ts}] -> if System.monotonic_time(:millisecond) - ts < @cache_ttl_ms, do: {:ok, op}, else: :miss
-      [] -> :miss
+      [{^key, op, ts}] ->
+        if System.monotonic_time(:millisecond) - ts < @cache_ttl_ms, do: {:ok, op}, else: :miss
+
+      [] ->
+        :miss
     end
   end
 
-  defp cache(key, op), do: :ets.insert(@cache_table, {key, op, System.monotonic_time(:millisecond)})
+  defp cache(key, op),
+    do: :ets.insert(@cache_table, {key, op, System.monotonic_time(:millisecond)})
 end

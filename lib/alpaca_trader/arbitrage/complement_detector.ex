@@ -62,6 +62,7 @@ defmodule AlpacaTrader.Arbitrage.ComplementDetector do
   end
 
   defp pick_stronger(nil, signal), do: signal
+
   defp pick_stronger(best, signal) do
     if abs(signal.z_score) > abs(best.z_score), do: signal, else: best
   end

@@ -119,7 +119,9 @@ defmodule Mix.Tasks.Backtest do
     end)
 
     if length(all_trades) == 0 do
-      Mix.shell().info("\nNo trades generated. Check: (1) pair cointegration gate too strict, (2) entry z too high, (3) insufficient historical bars.")
+      Mix.shell().info(
+        "\nNo trades generated. Check: (1) pair cointegration gate too strict, (2) entry z too high, (3) insufficient historical bars."
+      )
     end
   end
 

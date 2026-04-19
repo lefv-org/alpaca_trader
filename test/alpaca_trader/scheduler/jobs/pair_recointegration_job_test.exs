@@ -13,7 +13,11 @@ defmodule AlpacaTrader.Scheduler.Jobs.PairRecointegrationJobTest do
       )
 
     original_path =
-      Application.get_env(:alpaca_trader, :pair_whitelist_path, "priv/runtime/pair_whitelist.json")
+      Application.get_env(
+        :alpaca_trader,
+        :pair_whitelist_path,
+        "priv/runtime/pair_whitelist.json"
+      )
 
     Application.put_env(:alpaca_trader, :pair_whitelist_path, tmp)
     :ok = PairWhitelist.set_path(tmp)

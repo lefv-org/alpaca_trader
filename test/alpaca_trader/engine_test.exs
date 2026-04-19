@@ -8,7 +8,12 @@ defmodule AlpacaTrader.EngineTest do
   defp build_context(overrides \\ %{}) do
     defaults = %MarketContext{
       symbol: "AAPL",
-      account: %{"equity" => "100000", "buying_power" => "200000", "cash" => "50000", "shorting_enabled" => true},
+      account: %{
+        "equity" => "100000",
+        "buying_power" => "200000",
+        "cash" => "50000",
+        "shorting_enabled" => true
+      },
       position: nil,
       clock: %{"is_open" => true, "next_close" => "2026-04-11T16:00:00-04:00"},
       asset: %{"symbol" => "AAPL", "tradable" => true, "name" => "Apple Inc."},
@@ -50,13 +55,21 @@ defmodule AlpacaTrader.EngineTest do
       Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
         assert conn.method == "POST"
         assert conn.request_path == "/v2/orders"
-        Req.Test.json(conn, %{"id" => "o1", "symbol" => "AAPL", "status" => "accepted", "side" => "buy", "qty" => "1"})
+
+        Req.Test.json(conn, %{
+          "id" => "o1",
+          "symbol" => "AAPL",
+          "status" => "accepted",
+          "side" => "buy",
+          "qty" => "1"
+        })
       end)
 
-      ctx = build_context(%{
-        clock: %{"is_open" => true},
-        asset: %{"tradable" => true, "class" => "us_equity"}
-      })
+      ctx =
+        build_context(%{
+          clock: %{"is_open" => true},
+          asset: %{"tradable" => true, "class" => "us_equity"}
+        })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "1"})
       assert result.action == :bought
@@ -68,14 +81,21 @@ defmodule AlpacaTrader.EngineTest do
 
     test "executes sell when market is open" do
       Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
-        Req.Test.json(conn, %{"id" => "o2", "symbol" => "AAPL", "status" => "accepted", "side" => "sell", "qty" => "5"})
+        Req.Test.json(conn, %{
+          "id" => "o2",
+          "symbol" => "AAPL",
+          "status" => "accepted",
+          "side" => "sell",
+          "qty" => "5"
+        })
       end)
 
-      ctx = build_context(%{
-        clock: %{"is_open" => true},
-        asset: %{"tradable" => true, "class" => "us_equity"},
-        positions: [%{"symbol" => "AAPL", "qty" => "10"}]
-      })
+      ctx =
+        build_context(%{
+          clock: %{"is_open" => true},
+          asset: %{"tradable" => true, "class" => "us_equity"},
+          positions: [%{"symbol" => "AAPL", "qty" => "10"}]
+        })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "5"})
       assert result.action == :sold
@@ -84,26 +104,37 @@ defmodule AlpacaTrader.EngineTest do
 
     test "allows short sell with no existing position when shorting enabled" do
       Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
-        Req.Test.json(conn, %{"id" => "o_short", "symbol" => "AAPL", "status" => "accepted", "side" => "sell"})
+        Req.Test.json(conn, %{
+          "id" => "o_short",
+          "symbol" => "AAPL",
+          "status" => "accepted",
+          "side" => "sell"
+        })
       end)
 
-      ctx = build_context(%{
-        clock: %{"is_open" => true},
-        asset: %{"tradable" => true, "class" => "us_equity"},
-        positions: []
-      })
+      ctx =
+        build_context(%{
+          clock: %{"is_open" => true},
+          asset: %{"tradable" => true, "class" => "us_equity"},
+          positions: []
+        })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "1"})
       assert result.action == :sold
     end
 
     test "blocks short sell when account does not support shorting" do
-      ctx = build_context(%{
-        account: %{"equity" => "100000", "buying_power" => "200000", "shorting_enabled" => false},
-        clock: %{"is_open" => true},
-        asset: %{"tradable" => true, "class" => "us_equity"},
-        positions: []
-      })
+      ctx =
+        build_context(%{
+          account: %{
+            "equity" => "100000",
+            "buying_power" => "200000",
+            "shorting_enabled" => false
+          },
+          clock: %{"is_open" => true},
+          asset: %{"tradable" => true, "class" => "us_equity"},
+          positions: []
+        })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "1"})
       assert result.action == :hold
@@ -115,11 +146,12 @@ defmodule AlpacaTrader.EngineTest do
         Req.Test.json(conn, %{"id" => "o3", "symbol" => "BTC/USD", "status" => "accepted"})
       end)
 
-      ctx = build_context(%{
-        symbol: "BTC/USD",
-        clock: %{"is_open" => false},
-        asset: %{"tradable" => true, "class" => "crypto"}
-      })
+      ctx =
+        build_context(%{
+          symbol: "BTC/USD",
+          clock: %{"is_open" => false},
+          asset: %{"tradable" => true, "class" => "crypto"}
+        })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "0.001"})
       assert result.action == :bought
@@ -130,10 +162,11 @@ defmodule AlpacaTrader.EngineTest do
         Plug.Conn.send_resp(conn, 422, Jason.encode!(%{"message" => "insufficient qty"}))
       end)
 
-      ctx = build_context(%{
-        clock: %{"is_open" => true},
-        asset: %{"tradable" => true, "class" => "us_equity"}
-      })
+      ctx =
+        build_context(%{
+          clock: %{"is_open" => true},
+          asset: %{"tradable" => true, "class" => "us_equity"}
+        })
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "buy", "qty" => "1"})
       assert result.action == :hold
@@ -149,12 +182,13 @@ defmodule AlpacaTrader.EngineTest do
 
   describe "MarketContext struct" do
     test "can be constructed with all fields" do
-      ctx = build_context(%{
-        position: %{"symbol" => "AAPL", "qty" => "10"},
-        bars: [%{"o" => 150, "h" => 155, "l" => 149, "c" => 153, "v" => 1000}],
-        positions: [%{"symbol" => "AAPL", "qty" => "10"}],
-        orders: [%{"id" => "o1", "symbol" => "AAPL", "status" => "filled"}]
-      })
+      ctx =
+        build_context(%{
+          position: %{"symbol" => "AAPL", "qty" => "10"},
+          bars: [%{"o" => 150, "h" => 155, "l" => 149, "c" => 153, "v" => 1000}],
+          positions: [%{"symbol" => "AAPL", "qty" => "10"}],
+          orders: [%{"id" => "o1", "symbol" => "AAPL", "status" => "filled"}]
+        })
 
       assert ctx.symbol == "AAPL"
       assert ctx.position["qty"] == "10"
@@ -212,14 +246,15 @@ defmodule AlpacaTrader.EngineTest do
     end
 
     test "finds related positions by asset name" do
-      ctx = build_context(%{
-        quotes: %{},
-        positions: [
-          %{"symbol" => "BTC/USD", "qty" => "0.5"},
-          %{"symbol" => "AAPL", "qty" => "10"},
-          %{"symbol" => "BTC/USDT", "qty" => "0.3"}
-        ]
-      })
+      ctx =
+        build_context(%{
+          quotes: %{},
+          positions: [
+            %{"symbol" => "BTC/USD", "qty" => "0.5"},
+            %{"symbol" => "AAPL", "qty" => "10"},
+            %{"symbol" => "BTC/USDT", "qty" => "0.3"}
+          ]
+        })
 
       {:ok, result} = Engine.is_in_arbitrage_position(ctx, "BTC")
       assert length(result.related_positions) == 2
@@ -228,13 +263,23 @@ defmodule AlpacaTrader.EngineTest do
     test "TAKE PROFIT: exits when z-score reverts below threshold" do
       # Simulate an open position with z-score that has reverted
       AlpacaTrader.BarsStore.put_all_bars(%{
-        "AAPL" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 0.1} end),
-        "MSFT" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 300.0 + i * 0.2} end)
+        "AAPL" =>
+          Enum.map(1..60, fn i ->
+            %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 0.1}
+          end),
+        "MSFT" =>
+          Enum.map(1..60, fn i ->
+            %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 300.0 + i * 0.2}
+          end)
       })
 
       AlpacaTrader.PairPositionStore.open_position(%{
-        asset_a: "AAPL", asset_b: "MSFT", direction: :long_a_short_b,
-        tier: 2, z_score: 2.5, hedge_ratio: 0.5
+        asset_a: "AAPL",
+        asset_b: "MSFT",
+        direction: :long_a_short_b,
+        tier: 2,
+        z_score: 2.5,
+        hedge_ratio: 0.5
       })
 
       ctx = build_context(%{quotes: %{}})
@@ -247,14 +292,25 @@ defmodule AlpacaTrader.EngineTest do
 
     test "TIME EXIT: exits after max bars held" do
       AlpacaTrader.BarsStore.put_all_bars(%{
-        "NVDA" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 800.0 + i * 1.0} end),
-        "AMD" => Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 0.2} end)
+        "NVDA" =>
+          Enum.map(1..60, fn i ->
+            %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 800.0 + i * 1.0}
+          end),
+        "AMD" =>
+          Enum.map(1..60, fn i ->
+            %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 0.2}
+          end)
       })
 
-      {:ok, pos} = AlpacaTrader.PairPositionStore.open_position(%{
-        asset_a: "NVDA", asset_b: "AMD", direction: :long_a_short_b,
-        tier: 2, z_score: 2.5, hedge_ratio: 0.3
-      })
+      {:ok, pos} =
+        AlpacaTrader.PairPositionStore.open_position(%{
+          asset_a: "NVDA",
+          asset_b: "AMD",
+          direction: :long_a_short_b,
+          tier: 2,
+          z_score: 2.5,
+          hedge_ratio: 0.3
+        })
 
       # Simulate 20 ticks (max_hold_bars for tier 2)
       for _ <- 1..20, do: AlpacaTrader.PairPositionStore.tick(pos.id, 1.5)
@@ -268,18 +324,31 @@ defmodule AlpacaTrader.EngineTest do
 
     test "HOLD: keeps position when z-score is between thresholds" do
       # Noisy correlated pair → z ≈ 1.12, between exit_z=0.5 and stop_z=4.0
-      bars_a = Enum.map(1..60, fn i ->
-        %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0 + i * 1.0 + :math.sin(i / 3.0) * 2.0}
-      end)
-      bars_b = Enum.map(1..60, fn i ->
-        %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 300.0 + i * 2.0 + :math.cos(i / 3.0) * 3.0}
-      end)
+      bars_a =
+        Enum.map(1..60, fn i ->
+          %{
+            "t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}",
+            "c" => 150.0 + i * 1.0 + :math.sin(i / 3.0) * 2.0
+          }
+        end)
+
+      bars_b =
+        Enum.map(1..60, fn i ->
+          %{
+            "t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}",
+            "c" => 300.0 + i * 2.0 + :math.cos(i / 3.0) * 3.0
+          }
+        end)
 
       AlpacaTrader.BarsStore.put_all_bars(%{"AAPL" => bars_a, "MSFT" => bars_b})
 
       AlpacaTrader.PairPositionStore.open_position(%{
-        asset_a: "AAPL", asset_b: "MSFT", direction: :long_a_short_b,
-        tier: 2, z_score: 2.5, hedge_ratio: 0.5
+        asset_a: "AAPL",
+        asset_b: "MSFT",
+        direction: :long_a_short_b,
+        tier: 2,
+        z_score: 2.5,
+        hedge_ratio: 0.5
       })
 
       ctx = build_context(%{quotes: %{}})
@@ -366,7 +435,9 @@ defmodule AlpacaTrader.EngineTest do
       prev = Application.get_env(:alpaca_trader, :regime_filter_enabled, false)
       Application.put_env(:alpaca_trader, :regime_filter_enabled, false)
       on_exit(fn -> Application.put_env(:alpaca_trader, :regime_filter_enabled, prev) end)
-      assert AlpacaTrader.RegimeDetector.allow_entry?(%{spread: [], symbol_a_closes: []}, []) == :ok
+
+      assert AlpacaTrader.RegimeDetector.allow_entry?(%{spread: [], symbol_a_closes: []}, []) ==
+               :ok
     end
   end
 

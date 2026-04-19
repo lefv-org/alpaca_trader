@@ -30,7 +30,6 @@ defmodule AlpacaTrader.Scheduler.Jobs.PairRecointegrationJob do
   def schedule, do: "0 6 * * 0"
 
   @impl true
-  @spec run() :: :ok
   def run do
     pairs = PairWhitelist.list()
     bars = fetch_current_bars(pairs)

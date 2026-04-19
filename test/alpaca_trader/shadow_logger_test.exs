@@ -12,7 +12,8 @@ defmodule AlpacaTrader.ShadowLoggerTest do
 
     pid =
       start_supervised!(
-        {ShadowLogger, [path: path, name: :"shadow_logger_test_#{System.unique_integer([:positive])}"]}
+        {ShadowLogger,
+         [path: path, name: :"shadow_logger_test_#{System.unique_integer([:positive])}"]}
       )
 
     on_exit(fn -> File.rm_rf(path) end)
@@ -23,8 +24,30 @@ defmodule AlpacaTrader.ShadowLoggerTest do
     test "writes JSONL lines containing status labels on flush", %{pid: pid, path: path} do
       ts = DateTime.utc_now()
 
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "AAA-BBB", event: :entry_signal, status: :would_enter, z_score: 2.1}})
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "AAA-BBB", event: :entry_signal, status: :blocked, z_score: 2.1, gate_rejections: [:regime]}})
+      GenServer.cast(
+        pid,
+        {:record,
+         %{
+           timestamp: ts,
+           pair: "AAA-BBB",
+           event: :entry_signal,
+           status: :would_enter,
+           z_score: 2.1
+         }}
+      )
+
+      GenServer.cast(
+        pid,
+        {:record,
+         %{
+           timestamp: ts,
+           pair: "AAA-BBB",
+           event: :entry_signal,
+           status: :blocked,
+           z_score: 2.1,
+           gate_rejections: [:regime]
+         }}
+      )
 
       :ok = GenServer.call(pid, :flush)
 
@@ -46,10 +69,20 @@ defmodule AlpacaTrader.ShadowLoggerTest do
     test "flush is append-only across calls", %{pid: pid, path: path} do
       ts = DateTime.utc_now()
 
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "X-Y", event: :entry_signal, status: :would_enter, z_score: 2.0}})
+      GenServer.cast(
+        pid,
+        {:record,
+         %{timestamp: ts, pair: "X-Y", event: :entry_signal, status: :would_enter, z_score: 2.0}}
+      )
+
       :ok = GenServer.call(pid, :flush)
 
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "X-Y", event: :exit_signal, status: :would_exit, z_score: 0.1}})
+      GenServer.cast(
+        pid,
+        {:record,
+         %{timestamp: ts, pair: "X-Y", event: :exit_signal, status: :would_exit, z_score: 0.1}}
+      )
+
       :ok = GenServer.call(pid, :flush)
 
       lines = File.read!(path) |> String.split("\n", trim: true)
@@ -61,10 +94,49 @@ defmodule AlpacaTrader.ShadowLoggerTest do
     test "returns counts keyed by status", %{pid: pid} do
       ts = DateTime.utc_now()
 
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "AAA-BBB", event: :entry_signal, status: :would_enter, z_score: 2.1}})
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "AAA-BBB", event: :entry_signal, status: :blocked, z_score: 2.1, gate_rejections: [:regime]}})
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "CCC-DDD", event: :entry_signal, status: :blocked, z_score: 2.4, gate_rejections: [:portfolio]}})
-      GenServer.cast(pid, {:record, %{timestamp: ts, pair: "AAA-BBB", event: :entry_signal, status: :filled, z_score: 2.1}})
+      GenServer.cast(
+        pid,
+        {:record,
+         %{
+           timestamp: ts,
+           pair: "AAA-BBB",
+           event: :entry_signal,
+           status: :would_enter,
+           z_score: 2.1
+         }}
+      )
+
+      GenServer.cast(
+        pid,
+        {:record,
+         %{
+           timestamp: ts,
+           pair: "AAA-BBB",
+           event: :entry_signal,
+           status: :blocked,
+           z_score: 2.1,
+           gate_rejections: [:regime]
+         }}
+      )
+
+      GenServer.cast(
+        pid,
+        {:record,
+         %{
+           timestamp: ts,
+           pair: "CCC-DDD",
+           event: :entry_signal,
+           status: :blocked,
+           z_score: 2.4,
+           gate_rejections: [:portfolio]
+         }}
+      )
+
+      GenServer.cast(
+        pid,
+        {:record,
+         %{timestamp: ts, pair: "AAA-BBB", event: :entry_signal, status: :filled, z_score: 2.1}}
+      )
 
       summary = GenServer.call(pid, :summary)
 

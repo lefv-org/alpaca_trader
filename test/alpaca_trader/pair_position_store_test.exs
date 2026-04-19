@@ -86,12 +86,15 @@ defmodule AlpacaTrader.PairPositionStoreTest do
 
   describe "persistence" do
     setup do
-      tmp = System.tmp_dir!() <> "/pair_positions_test_#{:erlang.unique_integer([:positive])}.json"
+      tmp =
+        System.tmp_dir!() <> "/pair_positions_test_#{:erlang.unique_integer([:positive])}.json"
+
       original = Application.get_env(:alpaca_trader, :pair_positions_path)
       Application.put_env(:alpaca_trader, :pair_positions_path, tmp)
 
       on_exit(fn ->
         File.rm(tmp)
+
         if original do
           Application.put_env(:alpaca_trader, :pair_positions_path, original)
         else
@@ -111,7 +114,9 @@ defmodule AlpacaTrader.PairPositionStoreTest do
       {:ok, body} = File.read(tmp)
       {:ok, decoded} = Jason.decode(body)
       assert decoded["count"] == 1
-      assert [%{"asset_a" => "AAPL", "asset_b" => "MSFT", "status" => "open"} | _] = decoded["positions"]
+
+      assert [%{"asset_a" => "AAPL", "asset_b" => "MSFT", "status" => "open"} | _] =
+               decoded["positions"]
     end
 
     test "close_position persists the closed state", %{tmp: tmp} do
@@ -161,7 +166,9 @@ defmodule AlpacaTrader.PairPositionStoreTest do
       # two tests above (write then read).
       assert File.exists?(tmp)
       {:ok, loaded} = Jason.decode(File.read!(tmp))
-      assert [%{"asset_a" => "AAPL", "asset_b" => "MSFT", "status" => "open"}] = loaded["positions"]
+
+      assert [%{"asset_a" => "AAPL", "asset_b" => "MSFT", "status" => "open"}] =
+               loaded["positions"]
     end
   end
 
@@ -192,7 +199,9 @@ defmodule AlpacaTrader.PairPositionStoreTest do
           {k, v} -> {to_string(k), v}
         end)
 
-      encoded = Jason.encode!(%{positions: [legacy], count: 1, updated_at: "2026-04-19T00:00:00Z"})
+      encoded =
+        Jason.encode!(%{positions: [legacy], count: 1, updated_at: "2026-04-19T00:00:00Z"})
+
       {:ok, decoded} = Jason.decode(encoded)
       [p] = decoded["positions"]
       assert Map.get(p, "half_life") == nil

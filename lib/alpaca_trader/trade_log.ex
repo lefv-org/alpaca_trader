@@ -137,8 +137,11 @@ defmodule AlpacaTrader.TradeLog do
           end)
           |> Enum.reject(&is_nil/1)
 
-        {:error, :enoent} -> []
-        {:error, _} -> []
+        {:error, :enoent} ->
+          []
+
+        {:error, _} ->
+          []
       end
 
     {:reply, entries, state}

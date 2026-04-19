@@ -35,9 +35,11 @@ defmodule AlpacaTrader.AltData.Providers.Finnhub do
   end
 
   defp fetch_market_news(api_key) do
-    case Req.get(Req.new(), url: "#{@base_url}/news",
+    case Req.get(Req.new(),
+           url: "#{@base_url}/news",
            params: [category: "general", token: api_key],
-           receive_timeout: 10_000) do
+           receive_timeout: 10_000
+         ) do
       {:ok, %{status: 200, body: articles}} when is_list(articles) ->
         signals = analyze_headlines(articles)
         {:ok, signals}
@@ -88,17 +90,20 @@ defmodule AlpacaTrader.AltData.Providers.Finnhub do
     if direction == :neutral do
       []
     else
-      [%Signal{
-        provider: :finnhub,
-        signal_type: :sentiment,
-        direction: direction,
-        strength: strength,
-        affected_symbols: ["SPY", "QQQ", "IWM"],
-        reason: "News sentiment #{direction}: #{bullish} bullish vs #{bearish} bearish keywords in #{total} mentions",
-        fetched_at: DateTime.utc_now(),
-        expires_at: DateTime.add(DateTime.utc_now(), 12, :minute),
-        raw: %{bullish: bullish, bearish: bearish, ratio: ratio}
-      }]
+      [
+        %Signal{
+          provider: :finnhub,
+          signal_type: :sentiment,
+          direction: direction,
+          strength: strength,
+          affected_symbols: ["SPY", "QQQ", "IWM"],
+          reason:
+            "News sentiment #{direction}: #{bullish} bullish vs #{bearish} bearish keywords in #{total} mentions",
+          fetched_at: DateTime.utc_now(),
+          expires_at: DateTime.add(DateTime.utc_now(), 12, :minute),
+          raw: %{bullish: bullish, bearish: bearish, ratio: ratio}
+        }
+      ]
     end
   end
 end

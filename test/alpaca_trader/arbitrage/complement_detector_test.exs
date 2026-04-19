@@ -28,10 +28,16 @@ defmodule AlpacaTrader.Arbitrage.ComplementDetectorTest do
   end
 
   test "detects opportunity when z-score exceeds 2.5" do
-    bars_a = Enum.map(1..59, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0} end)
-              ++ [%{"t" => "2026-03-01", "c" => 500.0}]
+    bars_a =
+      Enum.map(1..59, fn i ->
+        %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 150.0}
+      end) ++
+        [%{"t" => "2026-03-01", "c" => 500.0}]
 
-    bars_b = Enum.map(1..60, fn i -> %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 100.0} end)
+    bars_b =
+      Enum.map(1..60, fn i ->
+        %{"t" => "2026-01-#{String.pad_leading("#{i}", 2, "0")}", "c" => 100.0}
+      end)
 
     BarsStore.put_all_bars(%{"AAPL" => bars_a, "TSM" => bars_b})
 

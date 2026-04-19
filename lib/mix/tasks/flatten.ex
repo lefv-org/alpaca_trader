@@ -43,7 +43,10 @@ defmodule Mix.Tasks.Flatten do
 
     {:ok, positions} = Client.list_positions()
 
-    Mix.shell().info("Account: equity=$#{equity} daytrade_count=#{daytrade_count} under_pdt=#{under_pdt_threshold}")
+    Mix.shell().info(
+      "Account: equity=$#{equity} daytrade_count=#{daytrade_count} under_pdt=#{under_pdt_threshold}"
+    )
+
     Mix.shell().info("Positions to evaluate: #{length(positions)}")
 
     {:ok, orders} = Client.list_orders(%{status: "filled", limit: 500, direction: "desc"})
@@ -83,7 +86,12 @@ defmodule Mix.Tasks.Flatten do
         true -> :equity_same_day
       end
 
-    %{pos: pos, symbol: symbol, category: category, market_value: parse_float(pos["market_value"])}
+    %{
+      pos: pos,
+      symbol: symbol,
+      category: category,
+      market_value: parse_float(pos["market_value"])
+    }
   end
 
   defp select_closeable(classified, opts, under_pdt) do
@@ -111,9 +119,18 @@ defmodule Mix.Tasks.Flatten do
     same_day = by_cat[:equity_same_day] || []
 
     Mix.shell().info("\n--- CLASSIFICATION ---")
-    Mix.shell().info("  Crypto (safe to close):         #{length(crypto)}  total_value=$#{sum_mv(crypto)}")
-    Mix.shell().info("  Equity prior-day (safe):        #{length(prior)}  total_value=$#{sum_mv(prior)}")
-    Mix.shell().info("  Equity SAME-DAY (PDT risk):     #{length(same_day)}  total_value=$#{sum_mv(same_day)}")
+
+    Mix.shell().info(
+      "  Crypto (safe to close):         #{length(crypto)}  total_value=$#{sum_mv(crypto)}"
+    )
+
+    Mix.shell().info(
+      "  Equity prior-day (safe):        #{length(prior)}  total_value=$#{sum_mv(prior)}"
+    )
+
+    Mix.shell().info(
+      "  Equity SAME-DAY (PDT risk):     #{length(same_day)}  total_value=$#{sum_mv(same_day)}"
+    )
 
     if length(same_day) > 0 do
       Mix.shell().info("\n  Same-day equity positions (will be SKIPPED unless --force-all):")

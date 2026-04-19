@@ -117,6 +117,7 @@ defmodule AlpacaTrader.Backtest.Report do
   end
 
   defp avg_return_per_pair([]), do: 0.0
+
   defp avg_return_per_pair(results) do
     per_pair_returns =
       results
@@ -133,14 +134,17 @@ defmodule AlpacaTrader.Backtest.Report do
   defp mean_pct(trades), do: Enum.reduce(trades, 0.0, &(&1.pnl_pct + &2)) / length(trades)
 
   defp mean_field([], _), do: 0.0
+
   defp mean_field(trades, field) do
     Enum.reduce(trades, 0.0, fn t, acc -> acc + Map.get(t, field, 0) end) / length(trades)
   end
 
   defp max_drawdown_from_curve([]), do: {0.0, 0}
+
   defp max_drawdown_from_curve(curve) do
     {mdd, _, duration, _} =
-      Enum.reduce(curve, {0.0, 1.0, 0, {0, 0}}, fn {i, eq}, {mdd, peak, dur, {peak_i, trough_i}} ->
+      Enum.reduce(curve, {0.0, 1.0, 0, {0, 0}}, fn {i, eq},
+                                                   {mdd, peak, dur, {peak_i, trough_i}} ->
         new_peak = max(peak, eq)
         dd = (new_peak - eq) / new_peak
         peak_i = if new_peak > peak, do: i, else: peak_i
@@ -173,7 +177,10 @@ defmodule AlpacaTrader.Backtest.Report do
       0.0
     else
       mean_r = Enum.sum(returns) / n
-      variance = Enum.reduce(returns, 0.0, fn r, acc -> acc + :math.pow(r - mean_r, 2) end) / (n - 1)
+
+      variance =
+        Enum.reduce(returns, 0.0, fn r, acc -> acc + :math.pow(r - mean_r, 2) end) / (n - 1)
+
       std = :math.sqrt(variance)
 
       # Default annualization assumes 1-hour crypto bars (24*365=8760/yr).

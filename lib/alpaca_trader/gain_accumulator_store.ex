@@ -39,8 +39,12 @@ defmodule AlpacaTrader.GainAccumulatorStore do
   @doc "Accumulated gain capital: max(0, equity - today's principal). Returns 0.0 before snapshot."
   def trading_capital(equity) do
     case {to_decimal(equity), principal()} do
-      {nil, _} -> 0.0
-      {_, nil} -> 0.0
+      {nil, _} ->
+        0.0
+
+      {_, nil} ->
+        0.0
+
       {e, p} ->
         e
         |> Decimal.sub(p)
@@ -73,7 +77,11 @@ defmodule AlpacaTrader.GainAccumulatorStore do
     if state.date != today do
       new_state = %{date: today, principal: equity}
       persist_session(new_state, equity)
-      Logger.info("[GainAccumulator] 📸 #{today} principal=$#{fmt(equity)} established — trading enabled")
+
+      Logger.info(
+        "[GainAccumulator] 📸 #{today} principal=$#{fmt(equity)} established — trading enabled"
+      )
+
       {:reply, true, new_state}
     else
       check_gain(state, equity)
@@ -108,10 +116,16 @@ defmodule AlpacaTrader.GainAccumulatorStore do
     persist_session(state, equity)
 
     if Decimal.compare(gain, neg_tolerance) != :lt do
-      Logger.info("[GainAccumulator] ✅ gain=$#{fmt(gain)} (tolerance=$#{fmt(fee_tolerance, 4)}) — entry allowed")
+      Logger.info(
+        "[GainAccumulator] ✅ gain=$#{fmt(gain)} (tolerance=$#{fmt(fee_tolerance, 4)}) — entry allowed"
+      )
+
       {:reply, true, state}
     else
-      Logger.debug("[GainAccumulator] 🔒 gain=$#{fmt(gain)} exceeds loss tolerance=$#{fmt(fee_tolerance, 4)} — entry blocked")
+      Logger.debug(
+        "[GainAccumulator] 🔒 gain=$#{fmt(gain)} exceeds loss tolerance=$#{fmt(fee_tolerance, 4)} — entry blocked"
+      )
+
       {:reply, false, state}
     end
   end
@@ -122,6 +136,7 @@ defmodule AlpacaTrader.GainAccumulatorStore do
   defp to_decimal(%Decimal{} = d), do: d
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
+
   defp to_decimal(s) when is_binary(s) do
     case Decimal.parse(s) do
       {d, ""} -> d
@@ -136,7 +151,11 @@ defmodule AlpacaTrader.GainAccumulatorStore do
   # ── Persistence ─────────────────────────────────────────────
 
   defp file_path do
-    Application.get_env(:alpaca_trader, :gain_accumulator_path, "priv/runtime/gain_accumulator.json")
+    Application.get_env(
+      :alpaca_trader,
+      :gain_accumulator_path,
+      "priv/runtime/gain_accumulator.json"
+    )
   end
 
   defp load_state do
@@ -151,7 +170,10 @@ defmodule AlpacaTrader.GainAccumulatorStore do
           %{date: today, principal: p}
         else
           {:ok, other_date} when is_struct(other_date, Date) ->
-            Logger.info("[GainAccumulator] stale principal from #{other_date} — will snapshot fresh on next tick")
+            Logger.info(
+              "[GainAccumulator] stale principal from #{other_date} — will snapshot fresh on next tick"
+            )
+
             %{date: nil, principal: nil}
 
           _ ->

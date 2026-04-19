@@ -46,7 +46,11 @@ defmodule AlpacaTrader.RegimeDetector do
       nil
     else
       mean = Enum.sum(log_returns) / n
-      variance = Enum.reduce(log_returns, 0.0, fn r, acc -> acc + :math.pow(r - mean, 2) end) / max(n - 1, 1)
+
+      variance =
+        Enum.reduce(log_returns, 0.0, fn r, acc -> acc + :math.pow(r - mean, 2) end) /
+          max(n - 1, 1)
+
       stdev = :math.sqrt(variance)
 
       scale =
@@ -75,13 +79,30 @@ defmodule AlpacaTrader.RegimeDetector do
   Returns `:ok` or `{:blocked, reason}`.
   """
   def allow_entry?(inputs, opts \\ []) when is_map(inputs) do
-    enabled = Keyword.get(opts, :enabled, Application.get_env(:alpaca_trader, :regime_filter_enabled, false))
+    enabled =
+      Keyword.get(
+        opts,
+        :enabled,
+        Application.get_env(:alpaca_trader, :regime_filter_enabled, false)
+      )
 
     if not enabled do
       :ok
     else
-      max_vol = Keyword.get(opts, :max_realized_vol, Application.get_env(:alpaca_trader, :regime_max_realized_vol, 1.0))
-      max_adf_p = Keyword.get(opts, :max_adf_pvalue, Application.get_env(:alpaca_trader, :regime_max_adf_pvalue))
+      max_vol =
+        Keyword.get(
+          opts,
+          :max_realized_vol,
+          Application.get_env(:alpaca_trader, :regime_max_realized_vol, 1.0)
+        )
+
+      max_adf_p =
+        Keyword.get(
+          opts,
+          :max_adf_pvalue,
+          Application.get_env(:alpaca_trader, :regime_max_adf_pvalue)
+        )
+
       bar_freq = Map.get(inputs, :bar_frequency, :hourly)
 
       with :ok <- check_vol(inputs[:symbol_a_closes] || [], max_vol, bar_freq),
@@ -104,7 +125,9 @@ defmodule AlpacaTrader.RegimeDetector do
   defp check_adf(spread, max_p) when is_list(spread) and length(spread) >= 30 do
     case MeanReversion.adf_test(spread) do
       %{t_stat: t} ->
-        if t_to_pvalue(t) <= max_p, do: :ok, else: {:blocked, {:spread_not_stationary, Float.round(t, 3)}}
+        if t_to_pvalue(t) <= max_p,
+          do: :ok,
+          else: {:blocked, {:spread_not_stationary, Float.round(t, 3)}}
 
       _ ->
         {:blocked, {:spread_not_stationary, :no_adf}}

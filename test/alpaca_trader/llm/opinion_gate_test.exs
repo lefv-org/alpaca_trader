@@ -12,15 +12,21 @@ defmodule AlpacaTrader.LLM.OpinionGateTest do
 
   test "evaluate returns an opinion with conviction" do
     arb = %ArbitragePosition{
-      asset: "AAPL", pair_asset: "MSFT", z_score: 2.5,
-      direction: :long_a_short_b, tier: 2, action: :enter,
+      asset: "AAPL",
+      pair_asset: "MSFT",
+      z_score: 2.5,
+      direction: :long_a_short_b,
+      tier: 2,
+      action: :enter,
       reason: "test signal"
     }
 
     ctx = %MarketContext{
       clock: %{"is_open" => false},
       account: %{"equity" => "100000"},
-      positions: [], orders: [], quotes: %{}
+      positions: [],
+      orders: [],
+      quotes: %{}
     }
 
     {:ok, opinion} = OpinionGate.evaluate(arb, ctx)

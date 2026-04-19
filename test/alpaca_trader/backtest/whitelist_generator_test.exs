@@ -9,7 +9,12 @@ defmodule AlpacaTrader.Backtest.WhitelistGeneratorTest do
       System.tmp_dir!() <>
         "/wl_gen_test_#{:erlang.unique_integer([:positive])}.json"
 
-    original_path = Application.get_env(:alpaca_trader, :pair_whitelist_path, "priv/runtime/pair_whitelist.json")
+    original_path =
+      Application.get_env(
+        :alpaca_trader,
+        :pair_whitelist_path,
+        "priv/runtime/pair_whitelist.json"
+      )
 
     Application.put_env(:alpaca_trader, :pair_whitelist_path, tmp)
     Application.put_env(:alpaca_trader, :pair_whitelist_enabled, true)
@@ -28,10 +33,38 @@ defmodule AlpacaTrader.Backtest.WhitelistGeneratorTest do
   test "selects pairs meeting the thresholds" do
     wf_result = %{
       per_pair_robustness: [
-        %{pair: "GOOD-PAIR", n_windows: 3, wins: 3, win_ratio: 1.0, avg_window_return: 0.02, total_trades: 10},
-        %{pair: "MEDIUM-PAIR", n_windows: 3, wins: 2, win_ratio: 0.67, avg_window_return: 0.01, total_trades: 5},
-        %{pair: "BAD-PAIR", n_windows: 3, wins: 0, win_ratio: 0.0, avg_window_return: -0.02, total_trades: 4},
-        %{pair: "LOW-TRADES", n_windows: 3, wins: 2, win_ratio: 0.67, avg_window_return: 0.01, total_trades: 2}
+        %{
+          pair: "GOOD-PAIR",
+          n_windows: 3,
+          wins: 3,
+          win_ratio: 1.0,
+          avg_window_return: 0.02,
+          total_trades: 10
+        },
+        %{
+          pair: "MEDIUM-PAIR",
+          n_windows: 3,
+          wins: 2,
+          win_ratio: 0.67,
+          avg_window_return: 0.01,
+          total_trades: 5
+        },
+        %{
+          pair: "BAD-PAIR",
+          n_windows: 3,
+          wins: 0,
+          win_ratio: 0.0,
+          avg_window_return: -0.02,
+          total_trades: 4
+        },
+        %{
+          pair: "LOW-TRADES",
+          n_windows: 3,
+          wins: 2,
+          win_ratio: 0.67,
+          avg_window_return: 0.01,
+          total_trades: 2
+        }
       ]
     }
 
@@ -54,7 +87,14 @@ defmodule AlpacaTrader.Backtest.WhitelistGeneratorTest do
   test "writes through to PairWhitelist" do
     wf_result = %{
       per_pair_robustness: [
-        %{pair: "UNI/USD-AAVE/USD", n_windows: 3, wins: 3, win_ratio: 1.0, avg_window_return: 0.015, total_trades: 4}
+        %{
+          pair: "UNI/USD-AAVE/USD",
+          n_windows: 3,
+          wins: 3,
+          win_ratio: 1.0,
+          avg_window_return: 0.015,
+          total_trades: 4
+        }
       ]
     }
 
@@ -71,12 +111,33 @@ defmodule AlpacaTrader.Backtest.WhitelistGeneratorTest do
 
   test "rejects pairs below :min_net_sharpe" do
     robustness = [
-      %{pair: "A-B", n_windows: 5, wins: 4, win_ratio: 0.8, avg_window_return: 0.01, total_trades: 10, sharpe_window_annualized: 0.5, per_window_returns: [0.01, 0.02, -0.01, 0.03, 0.01]},
-      %{pair: "C-D", n_windows: 5, wins: 4, win_ratio: 0.8, avg_window_return: 0.01, total_trades: 10, sharpe_window_annualized: 0.1, per_window_returns: [0.01, 0.001, -0.005, 0.01, 0.005]}
+      %{
+        pair: "A-B",
+        n_windows: 5,
+        wins: 4,
+        win_ratio: 0.8,
+        avg_window_return: 0.01,
+        total_trades: 10,
+        sharpe_window_annualized: 0.5,
+        per_window_returns: [0.01, 0.02, -0.01, 0.03, 0.01]
+      },
+      %{
+        pair: "C-D",
+        n_windows: 5,
+        wins: 4,
+        win_ratio: 0.8,
+        avg_window_return: 0.01,
+        total_trades: 10,
+        sharpe_window_annualized: 0.1,
+        per_window_returns: [0.01, 0.001, -0.005, 0.01, 0.005]
+      }
     ]
 
     wf_result = %{per_pair_robustness: robustness}
-    {:ok, accepted} = AlpacaTrader.Backtest.WhitelistGenerator.generate(wf_result, min_net_sharpe: 0.4)
+
+    {:ok, accepted} =
+      AlpacaTrader.Backtest.WhitelistGenerator.generate(wf_result, min_net_sharpe: 0.4)
+
     assert accepted == [{"A", "B"}]
   end
 end

@@ -48,7 +48,14 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
 
   describe "position_score/1" do
     test "fresh position has low convergence and is not stale" do
-      pos = build_position(%{entry_z_score: 2.5, current_z_score: 2.4, bars_held: 1, max_hold_bars: 20})
+      pos =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 2.4,
+          bars_held: 1,
+          max_hold_bars: 20
+        })
+
       score = RotationEvaluator.position_score(pos)
 
       assert score.convergence < 0.1
@@ -58,13 +65,14 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
     end
 
     test "mostly converged + mostly through time = stale" do
-      pos = build_position(%{
-        entry_z_score: 2.5,
-        current_z_score: 0.7,
-        bars_held: 15,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      pos =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 0.7,
+          bars_held: 15,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       score = RotationEvaluator.position_score(pos)
 
@@ -75,13 +83,14 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
     end
 
     test "high convergence but low time is not stale" do
-      pos = build_position(%{
-        entry_z_score: 2.5,
-        current_z_score: 0.6,
-        bars_held: 3,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      pos =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 0.6,
+          bars_held: 3,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       score = RotationEvaluator.position_score(pos)
       assert score.convergence > 0.6
@@ -90,13 +99,14 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
     end
 
     test "low convergence but high time is not stale" do
-      pos = build_position(%{
-        entry_z_score: 2.5,
-        current_z_score: 2.0,
-        bars_held: 18,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      pos =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 2.0,
+          bars_held: 18,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       score = RotationEvaluator.position_score(pos)
       assert score.convergence < 0.6
@@ -128,25 +138,27 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
     end
 
     test "returns :skip when no positions are stale" do
-      fresh = build_position(%{
-        entry_z_score: 2.5,
-        current_z_score: 2.3,
-        bars_held: 2,
-        max_hold_bars: 20
-      })
+      fresh =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 2.3,
+          bars_held: 2,
+          max_hold_bars: 20
+        })
 
       signal = build_signal()
       assert RotationEvaluator.evaluate(signal, [fresh]) == :skip
     end
 
     test "returns {:rotate, victim} when stale position is weaker than signal" do
-      stale = build_position(%{
-        entry_z_score: 2.5,
-        current_z_score: 0.7,
-        bars_held: 15,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      stale =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 0.7,
+          bars_held: 15,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       signal = build_signal(%{z_score: 3.5})
 
@@ -154,13 +166,14 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
     end
 
     test "returns :skip when signal is too weak to justify rotation" do
-      stale = build_position(%{
-        entry_z_score: 2.5,
-        current_z_score: 0.8,
-        bars_held: 12,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      stale =
+        build_position(%{
+          entry_z_score: 2.5,
+          current_z_score: 0.8,
+          bars_held: 12,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       # Weak signal — barely above entry threshold
       weak_signal = build_signal(%{z_score: 2.0})
@@ -173,15 +186,16 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
 
     test "skips positions that overlap with the new signal's assets" do
       # Position involves NVDA-AMD, signal also targets NVDA-AMD → overlap → skip
-      overlapping = build_position(%{
-        asset_a: "NVDA",
-        asset_b: "AMD",
-        entry_z_score: 2.5,
-        current_z_score: 0.7,
-        bars_held: 15,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      overlapping =
+        build_position(%{
+          asset_a: "NVDA",
+          asset_b: "AMD",
+          entry_z_score: 2.5,
+          current_z_score: 0.7,
+          bars_held: 15,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       signal = build_signal(%{asset: "NVDA", pair_asset: "TSM", z_score: 3.5})
 
@@ -192,28 +206,30 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluatorTest do
 
     test "picks the weakest stale position when multiple exist" do
       # Position A: mostly converged (weak remaining EV)
-      weak = build_position(%{
-        id: "weak-pos",
-        asset_a: "AAPL",
-        asset_b: "MSFT",
-        entry_z_score: 2.5,
-        current_z_score: 0.6,
-        bars_held: 18,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      weak =
+        build_position(%{
+          id: "weak-pos",
+          asset_a: "AAPL",
+          asset_b: "MSFT",
+          entry_z_score: 2.5,
+          current_z_score: 0.6,
+          bars_held: 18,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       # Position B: less converged (more remaining EV)
-      stronger = build_position(%{
-        id: "stronger-pos",
-        asset_a: "META",
-        asset_b: "GOOGL",
-        entry_z_score: 2.5,
-        current_z_score: 0.9,
-        bars_held: 14,
-        max_hold_bars: 20,
-        exit_z_threshold: 0.5
-      })
+      stronger =
+        build_position(%{
+          id: "stronger-pos",
+          asset_a: "META",
+          asset_b: "GOOGL",
+          entry_z_score: 2.5,
+          current_z_score: 0.9,
+          bars_held: 14,
+          max_hold_bars: 20,
+          exit_z_threshold: 0.5
+        })
 
       signal = build_signal(%{z_score: 3.5})
 

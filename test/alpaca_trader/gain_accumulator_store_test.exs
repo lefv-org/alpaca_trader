@@ -9,6 +9,7 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
     Application.put_env(:alpaca_trader, :order_notional_pct, 0.001)
     Application.put_env(:alpaca_trader, :trade_fee_rate, 0.003)
     GainAccumulatorStore.reset()
+
     on_exit(fn ->
       try do
         File.rm(tmp)
@@ -16,6 +17,7 @@ defmodule AlpacaTrader.GainAccumulatorStoreTest do
         _ -> :ok
       end
     end)
+
     %{tmp: tmp}
   end
 

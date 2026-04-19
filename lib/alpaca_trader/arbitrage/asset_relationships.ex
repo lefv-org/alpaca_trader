@@ -82,12 +82,12 @@ defmodule AlpacaTrader.Arbitrage.AssetRelationships do
   # ── ALL SUBSTITUTES ────────────────────────────────────────
 
   @substitute_pairs @meme_pairs ++
-                    @l1_pairs ++
-                    @btc_pairs ++
-                    @defi_pairs ++
-                    @stablecoin_pairs ++
-                    @equity_pairs ++
-                    @cross_asset_pairs
+                      @l1_pairs ++
+                      @btc_pairs ++
+                      @defi_pairs ++
+                      @stablecoin_pairs ++
+                      @equity_pairs ++
+                      @cross_asset_pairs
 
   # ── PUBLIC API ─────────────────────────────────────────────
 
@@ -141,10 +141,10 @@ defmodule AlpacaTrader.Arbitrage.AssetRelationships do
   @doc "Returns tier-specific trading parameters."
   def params_for(symbol) do
     case volatility_tier(symbol) do
-      :meme     -> %{profit_target: 2.0, stop_loss: -1.5, z_entry: 1.8, max_hold: 30}
-      :high     -> %{profit_target: 1.2, stop_loss: -1.0, z_entry: 2.0, max_hold: 60}
+      :meme -> %{profit_target: 2.0, stop_loss: -1.5, z_entry: 1.8, max_hold: 30}
+      :high -> %{profit_target: 1.2, stop_loss: -1.0, z_entry: 2.0, max_hold: 60}
       :moderate -> %{profit_target: 0.5, stop_loss: -0.5, z_entry: 2.0, max_hold: 120}
-      :equity   -> %{profit_target: 0.5, stop_loss: -2.0, z_entry: 2.0, max_hold: 20}
+      :equity -> %{profit_target: 0.5, stop_loss: -2.0, z_entry: 2.0, max_hold: 20}
     end
   end
 end

@@ -96,7 +96,8 @@ defmodule AlpacaTrader.Alpaca.Client do
 
   defp data_client do
     opts = [
-      base_url: Application.get_env(:alpaca_trader, :alpaca_data_url, "https://data.alpaca.markets"),
+      base_url:
+        Application.get_env(:alpaca_trader, :alpaca_data_url, "https://data.alpaca.markets"),
       headers: [
         {"APCA-API-KEY-ID", Application.fetch_env!(:alpaca_trader, :alpaca_key_id)},
         {"APCA-API-SECRET-KEY", Application.fetch_env!(:alpaca_trader, :alpaca_secret_key)}
@@ -113,12 +114,18 @@ defmodule AlpacaTrader.Alpaca.Client do
 
   def get_crypto_snapshots(symbols) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
-    data_client() |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined]) |> handle()
+
+    data_client()
+    |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined])
+    |> handle()
   end
 
   def get_stock_snapshots(symbols) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
-    data_client() |> Req.get(url: "/v2/stocks/snapshots", params: [symbols: joined, feed: "iex"]) |> handle()
+
+    data_client()
+    |> Req.get(url: "/v2/stocks/snapshots", params: [symbols: joined, feed: "iex"])
+    |> handle()
   end
 
   @doc """
@@ -179,6 +186,9 @@ defmodule AlpacaTrader.Alpaca.Client do
     start = Date.utc_today() |> Date.add(-90) |> Date.to_iso8601()
     defaults = %{timeframe: "1Day", limit: 1000, start: start}
     merged = Map.merge(defaults, params) |> Map.put(:symbols, joined)
-    data_client() |> Req.get(url: "/v1beta3/crypto/us/bars", params: Map.to_list(merged)) |> handle()
+
+    data_client()
+    |> Req.get(url: "/v1beta3/crypto/us/bars", params: Map.to_list(merged))
+    |> handle()
   end
 end

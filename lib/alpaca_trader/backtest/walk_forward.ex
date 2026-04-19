@@ -135,7 +135,8 @@ defmodule AlpacaTrader.Backtest.WalkForward do
           Enum.reduce(r[:trades] || [], 0.0, fn t, acc -> acc + t.pnl_pct end)
         end)
 
-      total_trades = Enum.reduce(window_results, 0, fn r, acc -> acc + length(r[:trades] || []) end)
+      total_trades =
+        Enum.reduce(window_results, 0, fn r, acc -> acc + length(r[:trades] || []) end)
 
       wins = Enum.count(per_window_returns, &(&1 > 0))
       n = length(per_window_returns)
@@ -148,7 +149,9 @@ defmodule AlpacaTrader.Backtest.WalkForward do
 
           true ->
             var =
-              Enum.reduce(per_window_returns, 0.0, fn r, acc -> acc + :math.pow(r - avg_ret, 2) end) /
+              Enum.reduce(per_window_returns, 0.0, fn r, acc ->
+                acc + :math.pow(r - avg_ret, 2)
+              end) /
                 (n - 1)
 
             std = :math.sqrt(var)

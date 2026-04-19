@@ -63,7 +63,7 @@ defmodule AlpacaTrader.Arbitrage.KalmanFilter do
         innov_var = b * p_pred * b + r
 
         # Kalman gain
-        k = (p_pred * b) / innov_var
+        k = p_pred * b / innov_var
 
         # Update
         new_beta = beta + k * innov

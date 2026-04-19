@@ -16,9 +16,11 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
 
   require Logger
 
-  defp poll_interval_ms, do: Application.get_env(:alpaca_trader, :polymarket_poll_interval_ms, :timer.seconds(30))
-  defp shift_threshold,  do: Application.get_env(:alpaca_trader, :polymarket_shift_threshold, 0.10)
-  defp min_volume,       do: Application.get_env(:alpaca_trader, :polymarket_min_volume, 5_000)
+  defp poll_interval_ms,
+    do: Application.get_env(:alpaca_trader, :polymarket_poll_interval_ms, :timer.seconds(30))
+
+  defp shift_threshold, do: Application.get_env(:alpaca_trader, :polymarket_shift_threshold, 0.10)
+  defp min_volume, do: Application.get_env(:alpaca_trader, :polymarket_min_volume, 5_000)
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
@@ -132,7 +134,8 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
               %ArbitragePosition{
                 result: true,
                 asset: symbol,
-                reason: "POLYMARKET: #{curr.title} shifted #{Float.round(shift * 100, 1)}% to #{Float.round(curr.probability * 100, 1)}%",
+                reason:
+                  "POLYMARKET: #{curr.title} shifted #{Float.round(shift * 100, 1)}% to #{Float.round(curr.probability * 100, 1)}%",
                 action: :enter,
                 tier: 4,
                 pair_asset: nil,
@@ -154,6 +157,7 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
   end
 
   defp parse_price(nil), do: nil
+
   defp parse_price(prices_str) when is_binary(prices_str) do
     case Jason.decode(prices_str) do
       {:ok, [yes_price | _]} ->
@@ -161,17 +165,22 @@ defmodule AlpacaTrader.Polymarket.SignalGenerator do
           {f, _} -> f
           :error -> nil
         end
-      _ -> nil
+
+      _ ->
+        nil
     end
   end
+
   defp parse_price(_), do: nil
 
   defp parse_token_id(nil), do: nil
+
   defp parse_token_id(ids_str) when is_binary(ids_str) do
     case Jason.decode(ids_str) do
       {:ok, [id | _]} -> id
       _ -> nil
     end
   end
+
   defp parse_token_id(_), do: nil
 end

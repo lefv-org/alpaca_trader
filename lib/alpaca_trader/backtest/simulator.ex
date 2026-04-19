@@ -156,8 +156,12 @@ defmodule AlpacaTrader.Backtest.Simulator do
             fill_price(price_b_i, side_b, config)
           }
 
-        base_notional = compute_notional(state.equity, spread, window_a, window_b, analysis, config)
-        notional = kelly_clip(base_notional, state, state.equity * initial_notional(config), config)
+        base_notional =
+          compute_notional(state.equity, spread, window_a, window_b, analysis, config)
+
+        notional =
+          kelly_clip(base_notional, state, state.equity * initial_notional(config), config)
+
         hl = MeanReversion.half_life(spread)
 
         pos = %{
@@ -209,7 +213,9 @@ defmodule AlpacaTrader.Backtest.Simulator do
         # Dollar-neutral pair: both legs get the same notional, so each leg
         # contributes its own percentage return directly. Averaging keeps the
         # total comparable to a single-leg trade's % return.
-        pnl_frac = (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) / 2
+        pnl_frac =
+          (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) /
+            2
 
         commission_cost = 4 * (config.commission_bps / 10_000) * pos.notional
         net_pnl = pnl_frac * pos.notional - commission_cost
@@ -258,7 +264,10 @@ defmodule AlpacaTrader.Backtest.Simulator do
         exit_a = fill_price(price_a_i, opposite(pos.side_a), config)
         exit_b = fill_price(price_b_i, opposite(pos.side_b), config)
 
-        pnl_frac = (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) / 2
+        pnl_frac =
+          (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) /
+            2
+
         commission_cost = 4 * (config.commission_bps / 10_000) * pos.notional
         net_pnl = pnl_frac * pos.notional - commission_cost
         pnl_pct = net_pnl / pos.notional
@@ -276,7 +285,12 @@ defmodule AlpacaTrader.Backtest.Simulator do
           notional: pos.notional
         }
 
-        %{state | position: nil, equity: state.equity + net_pnl / initial_notional(config), trades: [trade | state.trades]}
+        %{
+          state
+          | position: nil,
+            equity: state.equity + net_pnl / initial_notional(config),
+            trades: [trade | state.trades]
+        }
     end
   end
 
@@ -368,7 +382,14 @@ defmodule AlpacaTrader.Backtest.Simulator do
   defp avg([]), do: 0.0
   defp avg(xs), do: Enum.sum(xs) / length(xs)
 
-  defp compute_base_notional(_equity, _spread, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
+  defp compute_base_notional(
+         _equity,
+         _spread,
+         _wa,
+         _wb,
+         _analysis,
+         %{position_sizing: :fixed} = config
+       ) do
     config.notional
   end
 
@@ -376,7 +397,10 @@ defmodule AlpacaTrader.Backtest.Simulator do
     # Vol-scaled: target_risk / (spread_std * stop_z)
     n = length(spread)
     mean = Enum.sum(spread) / n
-    variance = Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean, 2) end) / max(n - 1, 1)
+
+    variance =
+      Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean, 2) end) / max(n - 1, 1)
+
     std = :math.sqrt(variance)
 
     if std > 0 do

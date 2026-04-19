@@ -11,11 +11,19 @@ defmodule AlpacaTrader.Polymarket.MarketMapper do
     %{pattern: ~r/dogecoin.*price/i, symbols: ["DOGE/USD"], type: :crypto_bracket},
 
     # Crypto milestones
-    %{pattern: ~r/btc|bitcoin.*\$?\d+k/i, symbols: ["BTC/USD", "IBIT", "MARA", "COIN"], type: :crypto_milestone},
+    %{
+      pattern: ~r/btc|bitcoin.*\$?\d+k/i,
+      symbols: ["BTC/USD", "IBIT", "MARA", "COIN"],
+      type: :crypto_milestone
+    },
     %{pattern: ~r/eth|ethereum.*\$?\d+/i, symbols: ["ETH/USD", "COIN"], type: :crypto_milestone},
 
     # Fed / rates
-    %{pattern: ~r/fed.*rate.*cut/i, symbols: ["TLT", "IEF", "BND", "JPM", "BAC"], type: :fed_rate},
+    %{
+      pattern: ~r/fed.*rate.*cut/i,
+      symbols: ["TLT", "IEF", "BND", "JPM", "BAC"],
+      type: :fed_rate
+    },
     %{pattern: ~r/fed.*rate.*hike/i, symbols: ["TLT", "IEF", "GS", "JPM"], type: :fed_rate},
     %{pattern: ~r/fomc|federal.*reserve/i, symbols: ["TLT", "SPY"], type: :fed_rate},
 

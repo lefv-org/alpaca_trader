@@ -4,8 +4,16 @@ defmodule AlpacaTrader.Polymarket.Client do
   No authentication needed for market data.
   """
 
-  defp gamma_url, do: Application.get_env(:alpaca_trader, :polymarket_gamma_url, "https://gamma-api.polymarket.com")
-  defp clob_url,  do: Application.get_env(:alpaca_trader, :polymarket_clob_url,  "https://clob.polymarket.com")
+  defp gamma_url,
+    do:
+      Application.get_env(
+        :alpaca_trader,
+        :polymarket_gamma_url,
+        "https://gamma-api.polymarket.com"
+      )
+
+  defp clob_url,
+    do: Application.get_env(:alpaca_trader, :polymarket_clob_url, "https://clob.polymarket.com")
 
   @doc "Search for markets by query string."
   def search(query) do

@@ -72,15 +72,15 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   """
   def execute_trade(%MarketContext{} = ctx, %{"side" => side} = params)
       when side in ["buy", "sell"] do
-    asset_class      = get_in(ctx.asset, ["class"]) || "us_equity"
-    market_open?     = get_in(ctx.clock, ["is_open"]) == true
-    tradable?        = get_in(ctx.asset, ["tradable"]) == true
-    fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
+    asset_class = get_in(ctx.asset, ["class"]) || "us_equity"
+    market_open? = get_in(ctx.clock, ["is_open"]) == true
+    tradable? = get_in(ctx.asset, ["tradable"]) == true
+    fractionable? = get_in(ctx.asset, ["fractionable"]) != false
     shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
-    buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
-    notional         = params["notional"] && parse_float(params["notional"])
-    daytrade_count   = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
-    equity           = parse_float(get_in(ctx.account, ["equity"])) || 0.0
+    buying_power = parse_float(get_in(ctx.account, ["buying_power"]))
+    notional = params["notional"] && parse_float(params["notional"])
+    daytrade_count = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
+    equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
 
     held_qty =
       (ctx.positions || [])
@@ -101,13 +101,19 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         hold(ctx.symbol, "market is closed")
 
       side == "sell" and pdt_would_block ->
-        hold(ctx.symbol, "PDT limit (#{trunc(daytrade_count)}/3 day trades, equity < $25k, same-day position)")
+        hold(
+          ctx.symbol,
+          "PDT limit (#{trunc(daytrade_count)}/3 day trades, equity < $25k, same-day position)"
+        )
 
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
         hold(ctx.symbol, "account does not support shorting")
 
       side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
-        hold(ctx.symbol, "insufficient buying power: $#{Float.round(buying_power, 2)} < $#{notional} needed")
+        hold(
+          ctx.symbol,
+          "insufficient buying power: $#{Float.round(buying_power, 2)} < $#{notional} needed"
+        )
 
       side == "buy" and notional != nil and not fractionable? ->
         hold(ctx.symbol, "asset not fractionable, skipping notional order")
@@ -128,23 +134,30 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
 
         order_params = Map.merge(order_params, maybe_limit_price)
 
-        order_params = cond do
-          params["notional"] -> Map.put(order_params, :notional, params["notional"])
-          params["qty"]      -> Map.put(order_params, :qty, params["qty"])
-          true               -> Map.put(order_params, :qty, "1")
-        end
+        order_params =
+          cond do
+            params["notional"] -> Map.put(order_params, :notional, params["notional"])
+            params["qty"] -> Map.put(order_params, :qty, params["qty"])
+            true -> Map.put(order_params, :qty, "1")
+          end
 
-        order_params = order_params
-        |> maybe_put(:limit_price, params["limit_price"])
-        |> maybe_put(:stop_price, params["stop_price"])
-        |> Map.put_new(:client_order_id, params["client_order_id"] || new_client_order_id())
+        order_params =
+          order_params
+          |> maybe_put(:limit_price, params["limit_price"])
+          |> maybe_put(:stop_price, params["stop_price"])
+          |> Map.put_new(:client_order_id, params["client_order_id"] || new_client_order_id())
 
         case AlpacaTrader.Alpaca.Client.create_order(order_params) do
           {:ok, order} ->
-            action  = if(side == "buy", do: :bought, else: :sold)
-            emoji   = if side == "buy", do: "🟢", else: "🔴"
-            qty_str = if params["notional"], do: "$#{params["notional"]}", else: "qty=#{params["qty"]}"
-            Logger.info("[Trade] #{emoji} #{String.upcase(side)} #{ctx.symbol} #{qty_str} status=#{order["status"]}")
+            action = if(side == "buy", do: :bought, else: :sold)
+            emoji = if side == "buy", do: "🟢", else: "🔴"
+
+            qty_str =
+              if params["notional"], do: "$#{params["notional"]}", else: "qty=#{params["qty"]}"
+
+            Logger.info(
+              "[Trade] #{emoji} #{String.upcase(side)} #{ctx.symbol} #{qty_str} status=#{order["status"]}"
+            )
 
             # Structured fill metadata — SlippageMeasurement compares filled price
             # vs limit_price to quantify effective slippage on marketable-limit fills.
@@ -159,17 +172,23 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
                   status: order["status"]
                 })
             )
+
             {:ok,
              %PurchaseContext{
                action: action,
                symbol: ctx.symbol,
                reason: "order #{order["status"]}",
-               qty: params["qty"] || params["notional"], side: side, order: order,
+               qty: params["qty"] || params["notional"],
+               side: side,
+               order: order,
                timestamp: DateTime.utc_now()
              }}
 
           {:error, err} ->
-            Logger.warning("[Trade] ⚠️  ORDER REJECTED #{ctx.symbol} side=#{side}: #{inspect(err) |> String.slice(0..80)}")
+            Logger.warning(
+              "[Trade] ⚠️  ORDER REJECTED #{ctx.symbol} side=#{side}: #{inspect(err) |> String.slice(0..80)}"
+            )
+
             hold(ctx.symbol, "order rejected: #{inspect(err)}")
         end
     end
@@ -185,16 +204,18 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   """
   def execute_pair_atomic(%MarketContext{} = ctx, legs, pair_label, phase)
       when phase in [:entry, :exit] do
-    leg_contexts = Enum.map(legs, fn leg ->
-      {build_leg_context(ctx, leg["symbol"]), leg}
-    end)
+    leg_contexts =
+      Enum.map(legs, fn leg ->
+        {build_leg_context(ctx, leg["symbol"]), leg}
+      end)
 
-    blockers = Enum.flat_map(leg_contexts, fn {leg_ctx, leg} ->
-      case preflight_leg(leg_ctx, leg) do
-        :ok -> []
-        {:blocked, reason} -> [{leg["symbol"], leg["side"], reason}]
-      end
-    end)
+    blockers =
+      Enum.flat_map(leg_contexts, fn {leg_ctx, leg} ->
+        case preflight_leg(leg_ctx, leg) do
+          :ok -> []
+          {:blocked, reason} -> [{leg["symbol"], leg["side"], reason}]
+        end
+      end)
 
     if blockers == [] do
       Enum.map(leg_contexts, fn {leg_ctx, leg} ->
@@ -202,9 +223,11 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         purchase
       end)
     else
-      blocked_desc = Enum.map_join(blockers, ", ", fn {sym, side, reason} ->
-        "#{sym}(#{side}): #{reason}"
-      end)
+      blocked_desc =
+        Enum.map_join(blockers, ", ", fn {sym, side, reason} ->
+          "#{sym}(#{side}): #{reason}"
+        end)
+
       log_level = if phase == :exit, do: :warning, else: :debug
       Logger.log(log_level, "[Trade] ⏸ HOLD pair #{pair_label} (#{phase}): #{blocked_desc}")
 
@@ -243,15 +266,15 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   # Dry-run validation: mirrors execute_trade's gating without submitting.
   @doc false
   def preflight_leg(%MarketContext{} = ctx, %{"side" => side} = params) do
-    asset_class      = get_in(ctx.asset, ["class"]) || "us_equity"
-    market_open?     = get_in(ctx.clock, ["is_open"]) == true
-    tradable?        = get_in(ctx.asset, ["tradable"]) == true
-    fractionable?    = get_in(ctx.asset, ["fractionable"]) != false
+    asset_class = get_in(ctx.asset, ["class"]) || "us_equity"
+    market_open? = get_in(ctx.clock, ["is_open"]) == true
+    tradable? = get_in(ctx.asset, ["tradable"]) == true
+    fractionable? = get_in(ctx.asset, ["fractionable"]) != false
     shorting_enabled? = get_in(ctx.account, ["shorting_enabled"]) == true
-    buying_power     = parse_float(get_in(ctx.account, ["buying_power"]))
-    notional         = params["notional"] && parse_float(params["notional"])
-    daytrade_count   = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
-    equity           = parse_float(get_in(ctx.account, ["equity"])) || 0.0
+    buying_power = parse_float(get_in(ctx.account, ["buying_power"]))
+    notional = params["notional"] && parse_float(params["notional"])
+    daytrade_count = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
+    equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
 
     held_qty =
       (ctx.positions || [])
@@ -265,16 +288,29 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     pdt_would_block = pdt_at_limit and side == "sell" and opened_today?(ctx, ctx.symbol)
 
     cond do
-      not tradable? -> {:blocked, "not tradable"}
+      not tradable? ->
+        {:blocked, "not tradable"}
+
       side == "buy" and PositionReconciler.orphan?(ctx.symbol) ->
         {:blocked, "orphan position on Alpaca not tracked locally"}
-      asset_class != "crypto" and not market_open? -> {:blocked, "market closed"}
-      side == "sell" and pdt_would_block -> {:blocked, "PDT limit (#{trunc(daytrade_count)}/3 day trades, same-day position)"}
-      side == "sell" and held_qty <= 0 and not shorting_enabled? -> {:blocked, "no shorting"}
+
+      asset_class != "crypto" and not market_open? ->
+        {:blocked, "market closed"}
+
+      side == "sell" and pdt_would_block ->
+        {:blocked, "PDT limit (#{trunc(daytrade_count)}/3 day trades, same-day position)"}
+
+      side == "sell" and held_qty <= 0 and not shorting_enabled? ->
+        {:blocked, "no shorting"}
+
       side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
         {:blocked, "insufficient buying power"}
-      side == "buy" and notional != nil and not fractionable? -> {:blocked, "not fractionable"}
-      true -> :ok
+
+      side == "buy" and notional != nil and not fractionable? ->
+        {:blocked, "not fractionable"}
+
+      true ->
+        :ok
     end
   end
 
@@ -414,7 +450,14 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
 
   defp hold(symbol, reason) do
     Logger.debug("[Trade] ⏸ HOLD #{symbol}: #{reason}")
-    {:ok, %PurchaseContext{action: :hold, symbol: symbol, reason: reason, timestamp: DateTime.utc_now()}}
+
+    {:ok,
+     %PurchaseContext{
+       action: :hold,
+       symbol: symbol,
+       reason: reason,
+       timestamp: DateTime.utc_now()
+     }}
   end
 
   defp maybe_put(map, _key, nil), do: map
@@ -422,12 +465,14 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   defp maybe_put(map, key, val), do: Map.put(map, key, val)
 
   defp parse_float(nil), do: nil
+
   defp parse_float(s) when is_binary(s) do
     case Float.parse(s) do
       {f, _} -> f
       :error -> nil
     end
   end
+
   defp parse_float(n) when is_number(n), do: n * 1.0
 
   # Alpaca accepts client_order_id up to 48 chars. "at-" prefix tags orders
@@ -457,6 +502,7 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
       case PairPositionStore.find_open_for_asset(symbol) do
         %PairPositionStore.PairPosition{entry_time: %DateTime{} = et} ->
           DateTime.to_date(et) == today
+
         _ ->
           false
       end
@@ -464,11 +510,13 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   end
 
   defp filled_on?(nil, _today), do: false
+
   defp filled_on?(ts, today) when is_binary(ts) do
     case DateTime.from_iso8601(ts) do
       {:ok, dt, _} -> DateTime.to_date(dt) == today
       _ -> false
     end
   end
+
   defp filled_on?(_, _), do: false
 end

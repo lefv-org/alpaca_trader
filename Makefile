@@ -6,9 +6,9 @@ help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## //' | column -t -s ':'
 
 ## dev:          Start the Phoenix dev server, full logs → output.log (loads .env)
-## dev-force:    Same as dev but passes --allow-all to preflight (acks small-equity + PDT risk)
+## dev-force:    Flatten (safe) + --allow-all preflight + start dev server
 ## start:        Start trading bot, foreground — shows trades + LLM decisions only
-## start-force:  Same as start but passes --allow-all to preflight
+## start-force:  Flatten (safe) + --allow-all preflight + start trading bot
 ## setup:        Install deps and build assets (first-time)
 ## test:         Run tests
 ## lint:         Compile with warnings-as-errors + format check
@@ -66,10 +66,12 @@ dev: _kill_port _unquarantine _build_mac_listener preflight
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
 	$(_session_summary)
 
-# Same as dev but acknowledges all soft-blockers (small equity + PDT risk).
+# Same as dev but acknowledges all soft-blockers (small equity + PDT risk),
+# AND flattens open positions first (safe mode: crypto + prior-day equity only).
 # Use only when you understand the risks — one day trade on a PDT-risk account
-# locks it for 90 days.
-dev-force: _kill_port _unquarantine _build_mac_listener preflight-force
+# locks it for 90 days. Flatten runs before preflight so equity + orphan counts
+# reflect the post-close state.
+dev-force: _kill_port _unquarantine _build_mac_listener flatten preflight-force
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	trap '$(_session_summary)' INT TERM; \
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
@@ -87,8 +89,8 @@ preflight-force:
 flatten:
 	@set -a; [ -f .env ] && . ./.env; set +a; mix flatten
 
-# Same as start but acknowledges all soft-blockers
-start-force: _kill_port _unquarantine _build_mac_listener preflight-force
+# Same as start but acknowledges all soft-blockers AND flattens first
+start-force: _kill_port _unquarantine _build_mac_listener flatten preflight-force
 	@echo "══════════════════════════════════════════════"
 	@echo "  ALPACA TRADER  ·  FORCED START  ·  soft blocks ACKed"
 	@echo "══════════════════════════════════════════════"

@@ -1,20 +1,22 @@
-.PHONY: help dev start setup test lint format build check-env preflight flatten _kill_port
+.PHONY: help dev dev-force start start-force setup test lint format build check-env preflight preflight-force flatten _kill_port
 .DEFAULT_GOAL := help
 
 ## help: Show this help message
 help:
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## //' | column -t -s ':'
 
-## dev:       Start the Phoenix dev server, full logs → output.log (loads .env)
-## start:     Start trading bot, foreground — shows trades + LLM decisions only
-## setup:     Install deps and build assets (first-time)
-## test:      Run tests
-## lint:      Compile with warnings-as-errors + format check
-## format:    Auto-format code
-## build:     Build production assets
-## check-env: Verify .env.example has all keys present in .env (drift detection)
-## preflight: Pre-flight safety check (runs automatically before start)
-## flatten:   Close open positions safely (PDT-aware)
+## dev:          Start the Phoenix dev server, full logs → output.log (loads .env)
+## dev-force:    Same as dev but passes --allow-all to preflight (acks small-equity + PDT risk)
+## start:        Start trading bot, foreground — shows trades + LLM decisions only
+## start-force:  Same as start but passes --allow-all to preflight
+## setup:        Install deps and build assets (first-time)
+## test:         Run tests
+## lint:         Compile with warnings-as-errors + format check
+## format:       Auto-format code
+## build:        Build production assets
+## check-env:    Verify .env.example has all keys present in .env (drift detection)
+## preflight:    Pre-flight safety check (runs automatically before start)
+## flatten:      Close open positions safely (PDT-aware)
 
 # Kill whatever is on PORT (default 4000), then start
 _kill_port:
@@ -53,13 +55,40 @@ dev: _kill_port preflight
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
 	$(_session_summary)
 
+# Same as dev but acknowledges all soft-blockers (small equity + PDT risk).
+# Use only when you understand the risks — one day trade on a PDT-risk account
+# locks it for 90 days.
+dev-force: _kill_port preflight-force
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	trap '$(_session_summary)' INT TERM; \
+	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
+	$(_session_summary)
+
 # Pre-flight safety check: fails hard if PDT-locked, tiny live balance, etc.
 preflight:
 	@set -a; [ -f .env ] && . ./.env; set +a; mix preflight
 
+# Pre-flight with all soft-blockers acknowledged
+preflight-force:
+	@set -a; [ -f .env ] && . ./.env; set +a; mix preflight --allow-all
+
 # Close open positions (safe by default: crypto + prior-day equity only)
 flatten:
 	@set -a; [ -f .env ] && . ./.env; set +a; mix flatten
+
+# Same as start but acknowledges all soft-blockers
+start-force: _kill_port preflight-force
+	@echo "══════════════════════════════════════════════"
+	@echo "  ALPACA TRADER  ·  FORCED START  ·  soft blocks ACKed"
+	@echo "══════════════════════════════════════════════"
+	@echo ""
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	trap '$(_session_summary)' INT TERM; \
+	elixir --no-halt -S mix phx.server 2>&1 | \
+	tee -a arb_results.log | \
+	grep --line-buffered -E \
+	  "Running AlpacaTrader|Access AlpacaTrader|\[Scheduler\]|\[LLM Gate\]|\[Trade\]|\[ArbitrageScanJob\]|\[Discovery\]|\[Polymarket\]|\[error\]|\[warning\]"; \
+	$(_session_summary)
 
 # Start trading bot in foreground — filters to trades + LLM decisions
 start: _kill_port preflight

@@ -117,11 +117,13 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         # from the market to fill ~always but rejects in pathological spreads.
         {order_type, maybe_limit_price} = resolve_order_type(ctx, params, side)
 
+        tif_default = resolve_time_in_force(order_type, params, asset_class)
+
         order_params = %{
           symbol: ctx.symbol,
           side: side,
           type: order_type,
-          time_in_force: params["time_in_force"] || if(asset_class == "crypto", do: "gtc", else: "day")
+          time_in_force: tif_default
         }
 
         order_params = Map.merge(order_params, maybe_limit_price)
@@ -153,6 +155,7 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
                   side: side,
                   symbol: ctx.symbol,
                   limit_price: Map.get(order_params, :limit_price),
+                  filled_avg_price: order["filled_avg_price"],
                   status: order["status"]
                 })
             )
@@ -275,6 +278,33 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     end
   end
 
+  @doc false
+  # Resolve the effective time_in_force for a resolved order.
+  #
+  # When the live path ended up with a "limit" order because :order_type_mode
+  # is :marketable_limit (and the caller did not pass an explicit type), we
+  # force IOC: fill immediately against the top of the book or cancel. A
+  # resting day/gtc limit at mid ± 50bps would leak information and could be
+  # picked off — not what the spec intends.
+  #
+  # Otherwise, respect params["time_in_force"], falling back to the asset-
+  # class default ("gtc" for crypto, "day" for equities).
+  def resolve_time_in_force(order_type, params, asset_class) do
+    marketable_limit_mode? =
+      Application.get_env(:alpaca_trader, :order_type_mode, :market) ==
+        :marketable_limit
+
+    cond do
+      order_type == "limit" and marketable_limit_mode? and
+          not is_binary(params["type"]) ->
+        "ioc"
+
+      true ->
+        params["time_in_force"] ||
+          if(asset_class == "crypto", do: "gtc", else: "day")
+    end
+  end
+
   # Choose order type based on config. :market is the historical default.
   # :marketable_limit wraps the market in a limit price ±N bps away, which
   # fills like a market in normal conditions but rejects during liquidity gaps.
@@ -300,6 +330,55 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   end
 
   defp marketable_limit_price(ctx, side) do
+    symbol = ctx.symbol
+
+    cond do
+      is_map(ctx.quotes) && is_map(ctx.quotes[symbol]) ->
+        quote_price_from(ctx.quotes[symbol], side)
+
+      is_map(ctx.prices) && is_map(ctx.prices[symbol]) ->
+        quote_price_from(ctx.prices[symbol], side)
+
+      true ->
+        :error
+    end
+  end
+
+  defp quote_price_from(quote_map, side) do
+    # Two-model strategy:
+    #   1. When both bid (bp) AND ask (ap) are available, use the spread-fraction
+    #      model: buy = ask + k*(ask-bid); sell = bid - k*(ask-bid). This matches
+    #      `build_order/3` semantics and is driven by :marketable_limit_spread_mult.
+    #   2. Otherwise (e.g., only latestTrade.p), fall back to the bps-tolerance
+    #      model driven by :order_marketable_limit_tolerance_bps.
+    latest_quote = quote_map["latestQuote"]
+
+    bid = if is_map(latest_quote), do: latest_quote["bp"], else: nil
+    ask = if is_map(latest_quote), do: latest_quote["ap"], else: nil
+
+    cond do
+      is_number(bid) and is_number(ask) and bid > 0 and ask > 0 and ask >= bid ->
+        k =
+          Application.get_env(:alpaca_trader, :marketable_limit_spread_mult, 0.25)
+
+        spread = ask - bid
+
+        price =
+          case side do
+            "buy" -> ask + k * spread
+            "sell" -> bid - k * spread
+          end
+
+        if is_number(price) and price > 0,
+          do: {:ok, Float.round(price * 1.0, 6)},
+          else: :error
+
+      true ->
+        bps_fallback_price(quote_map, side)
+    end
+  end
+
+  defp bps_fallback_price(quote_map, side) do
     tolerance_bps =
       Application.get_env(:alpaca_trader, :order_marketable_limit_tolerance_bps, 50)
 
@@ -309,29 +388,14 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         "sell" -> 1 - tolerance_bps / 10_000
       end
 
-    symbol = ctx.symbol
-
-    cond do
-      is_map(ctx.quotes) && is_map(ctx.quotes[symbol]) ->
-        quote_price_from(ctx.quotes[symbol], side, multiplier)
-
-      is_map(ctx.prices) && is_map(ctx.prices[symbol]) ->
-        quote_price_from(ctx.prices[symbol], side, multiplier)
-
-      true ->
-        :error
-    end
-  end
-
-  defp quote_price_from(quote_map, side, multiplier) do
-    # Handle both stock-snapshot shape (latestTrade.p) and
-    # crypto-snapshot shape (latestQuote.ap / bp).
     price =
       cond do
-        side == "buy" and is_map(quote_map["latestQuote"]) and is_number(quote_map["latestQuote"]["ap"]) ->
+        side == "buy" and is_map(quote_map["latestQuote"]) and
+            is_number(quote_map["latestQuote"]["ap"]) ->
           quote_map["latestQuote"]["ap"]
 
-        side == "sell" and is_map(quote_map["latestQuote"]) and is_number(quote_map["latestQuote"]["bp"]) ->
+        side == "sell" and is_map(quote_map["latestQuote"]) and
+            is_number(quote_map["latestQuote"]["bp"]) ->
           quote_map["latestQuote"]["bp"]
 
         is_map(quote_map["latestTrade"]) and is_number(quote_map["latestTrade"]["p"]) ->
@@ -341,7 +405,9 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
           nil
       end
 
-    if is_number(price) and price > 0, do: {:ok, Float.round(price * multiplier, 6)}, else: :error
+    if is_number(price) and price > 0,
+      do: {:ok, Float.round(price * multiplier, 6)},
+      else: :error
   end
 
   # ── Helpers ────────────────────────────────────────────────

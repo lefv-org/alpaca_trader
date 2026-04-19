@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Preflight do
       mix preflight                      # human-readable report
       mix preflight --json               # machine-parseable summary
       mix preflight --allow-live-small   # acknowledge small-equity live risk
+      mix preflight --allow-pdt-risk     # acknowledge PDT lockout risk
+      mix preflight --allow-all          # acknowledge every soft-blocker
 
   Intended to wrap `mix phx.server` in the Makefile — fail fast before
   trading starts.
@@ -28,8 +30,15 @@ defmodule Mix.Tasks.Preflight do
   def run(args) do
     {opts, _, _} =
       OptionParser.parse(args,
-        strict: [json: :boolean, allow_live_small: :boolean]
+        strict: [
+          json: :boolean,
+          allow_live_small: :boolean,
+          allow_pdt_risk: :boolean,
+          allow_all: :boolean
+        ]
       )
+
+    allow_all = opts[:allow_all] == true
 
     Mix.Task.run("app.start")
 
@@ -49,7 +58,8 @@ defmodule Mix.Tasks.Preflight do
     dtc = parse_float(account["daytrade_count"]) || 0.0
 
     under_pdt = equity < 25_000
-    allow_small = opts[:allow_live_small] == true
+    allow_small = opts[:allow_live_small] == true or allow_all
+    allow_pdt = opts[:allow_pdt_risk] == true or allow_all
 
     checks = [
       check(:env, is_live, "LIVE account (api.alpaca.markets) — not paper", :warning),
@@ -61,9 +71,15 @@ defmodule Mix.Tasks.Preflight do
       ),
       check(
         :pdt_risk,
-        under_pdt and dtc >= 3,
-        "PDT RISK: daytrade_count=#{dtc} with equity $#{equity} < $25k. One more day trade will lock the account.",
+        under_pdt and dtc >= 3 and not allow_pdt,
+        "PDT RISK: daytrade_count=#{dtc} with equity $#{equity} < $25k. One more day trade will lock the account. Pass --allow-pdt-risk to ACK.",
         :blocking
+      ),
+      check(
+        :pdt_risk_ack,
+        under_pdt and dtc >= 3 and allow_pdt,
+        "PDT risk acknowledged: daytrade_count=#{dtc} with equity $#{equity} < $25k. Avoid opening + closing any equity position same-day.",
+        :warning
       ),
       check(
         :bp_exhausted,

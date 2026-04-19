@@ -777,29 +777,31 @@ defmodule AlpacaTrader.Engine do
   # flagged — defaults to :ok when disabled.
 
   defp regime_gate(arb) do
-    if Application.get_env(:alpaca_trader, :regime_filter_enabled, false) do
-      with {:ok, closes_a} <- get_best_closes(arb.asset),
-           {:ok, closes_b} <- get_best_closes(arb.pair_asset) do
-        len = min(length(closes_a), length(closes_b))
+    with {:ok, closes_a} <- get_best_closes(arb.asset),
+         {:ok, closes_b} <- get_best_closes(arb.pair_asset) do
+      len = min(length(closes_a), length(closes_b))
 
-        if len >= 20 do
-          a = Enum.take(closes_a, -len)
-          b = Enum.take(closes_b, -len)
-          ratio = arb.hedge_ratio || SpreadCalculator.hedge_ratio(a, b)
-          spread = SpreadCalculator.spread_series(a, b, ratio)
+      if len >= 20 do
+        a = Enum.take(closes_a, -len)
+        b = Enum.take(closes_b, -len)
+        ratio = arb.hedge_ratio || SpreadCalculator.hedge_ratio(a, b)
+        spread = SpreadCalculator.spread_series(a, b, ratio)
 
-          AlpacaTrader.RegimeDetector.allow_entry?(
-            %{spread: spread, symbol_a_closes: a, bar_frequency: :hourly},
-            []
-          )
-        else
-          :ok
-        end
+        regime_opts = [
+          enabled: Application.get_env(:alpaca_trader, :regime_filter_enabled, false),
+          max_realized_vol: Application.get_env(:alpaca_trader, :regime_max_realized_vol, 1.0),
+          max_adf_pvalue: Application.get_env(:alpaca_trader, :regime_max_adf_pvalue)
+        ]
+
+        AlpacaTrader.RegimeDetector.allow_entry?(
+          %{spread: spread, symbol_a_closes: a, bar_frequency: :hourly},
+          regime_opts
+        )
       else
-        _ -> :ok
+        :ok
       end
     else
-      :ok
+      _ -> :ok
     end
   end
 

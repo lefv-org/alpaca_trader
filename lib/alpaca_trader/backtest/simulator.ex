@@ -129,15 +129,16 @@ defmodule AlpacaTrader.Backtest.Simulator do
 
   defp maybe_enter(state, i, analysis, window_a, window_b, config, _label) do
     z = analysis.z_score
+    spread = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
 
     cond do
       abs(z) < config.entry_z ->
         state
 
-      config.require_cointegration and not cointegrated?(window_a, window_b, analysis, config) ->
+      config.require_cointegration and not cointegrated?(spread, config) ->
         state
 
-      not regime_allows_entry?(analysis, window_a, window_b, config) ->
+      not regime_allows_entry?(spread, window_a, config) ->
         state
 
       true ->
@@ -306,9 +307,7 @@ defmodule AlpacaTrader.Backtest.Simulator do
     end
   end
 
-  defp cointegrated?(window_a, window_b, analysis, config) do
-    spread = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
-
+  defp cointegrated?(spread, config) do
     case MeanReversion.classify(spread,
            max_half_life: config.max_half_life,
            max_hurst: config.max_hurst
@@ -318,17 +317,15 @@ defmodule AlpacaTrader.Backtest.Simulator do
     end
   end
 
-  defp regime_allows_entry?(analysis, window_a, window_b, config) do
+  defp regime_allows_entry?(spread, window_a, config) do
     regime_opts = [
       enabled: Map.get(config, :regime_filter_enabled, false),
       max_realized_vol: Map.get(config, :regime_max_realized_vol, 1.0),
       max_adf_pvalue: Map.get(config, :regime_max_adf_pvalue)
     ]
 
-    spread_for_regime = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
-
     case AlpacaTrader.RegimeDetector.allow_entry?(
-           %{spread: spread_for_regime, symbol_a_closes: window_a, bar_frequency: :hourly},
+           %{spread: spread, symbol_a_closes: window_a, bar_frequency: :hourly},
            regime_opts
          ) do
       :ok -> true

@@ -11,9 +11,8 @@ defmodule AlpacaTrader.RegimeDetectorTest do
 
       # Synthetic series with known daily log-return stdev ~ 0.01
       # annualized ≈ 0.01 * sqrt(252) ≈ 0.159
-      rng = :rand.seed(:exsss, {1, 2, 3})
+      :rand.seed(:exsss, {1, 2, 3})
       series = generate_gbm_series(1000, 0.0001, 0.01 / :math.sqrt(24))
-      _ = rng
       v = RegimeDetector.realized_vol_annualized(series, :hourly)
       assert v > 0.10 and v < 0.25
     end
@@ -45,6 +44,7 @@ defmodule AlpacaTrader.RegimeDetectorTest do
     end
 
     test "blocks when spread ADF shows non-stationarity (random walk)" do
+      :rand.seed(:exsss, {42, 0, 0})
       opts = [enabled: true, max_realized_vol: 10.0, max_adf_pvalue: 0.05]
 
       rw = Enum.scan(1..500, 0.0, fn _, acc -> acc + :rand.normal() end)
@@ -58,6 +58,7 @@ defmodule AlpacaTrader.RegimeDetectorTest do
     end
 
     test "allows when both vol is low and spread is stationary" do
+      :rand.seed(:exsss, {43, 0, 0})
       opts = [enabled: true, max_realized_vol: 10.0, max_adf_pvalue: 0.05]
 
       stationary =

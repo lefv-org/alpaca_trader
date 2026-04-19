@@ -37,20 +37,26 @@ defmodule AlpacaTrader.RegimeDetector do
     log_returns =
       series
       |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.filter(fn [a, b] -> a > 0 and b > 0 end)
       |> Enum.map(fn [a, b] -> :math.log(b / a) end)
 
     n = length(log_returns)
-    mean = Enum.sum(log_returns) / n
-    variance = Enum.reduce(log_returns, 0.0, fn r, acc -> acc + :math.pow(r - mean, 2) end) / n
-    stdev = :math.sqrt(variance)
 
-    scale =
-      case bar_frequency do
-        :hourly -> :math.sqrt(@hourly_bars_per_year)
-        :daily -> :math.sqrt(252)
-      end
+    if n < @min_vol_window - 1 do
+      nil
+    else
+      mean = Enum.sum(log_returns) / n
+      variance = Enum.reduce(log_returns, 0.0, fn r, acc -> acc + :math.pow(r - mean, 2) end) / max(n - 1, 1)
+      stdev = :math.sqrt(variance)
 
-    stdev * scale
+      scale =
+        case bar_frequency do
+          :hourly -> :math.sqrt(@hourly_bars_per_year)
+          :daily -> :math.sqrt(252)
+        end
+
+      stdev * scale
+    end
   end
 
   @doc """
@@ -97,9 +103,11 @@ defmodule AlpacaTrader.RegimeDetector do
 
   defp check_adf(spread, max_p) when is_list(spread) and length(spread) >= 30 do
     case MeanReversion.adf_test(spread) do
-      %{stationary?: true} -> :ok
-      %{t_stat: t} -> if t_to_pvalue(t) <= max_p, do: :ok, else: {:blocked, {:spread_not_stationary, Float.round(t, 3)}}
-      _ -> {:blocked, {:spread_not_stationary, :no_adf}}
+      %{t_stat: t} ->
+        if t_to_pvalue(t) <= max_p, do: :ok, else: {:blocked, {:spread_not_stationary, Float.round(t, 3)}}
+
+      _ ->
+        {:blocked, {:spread_not_stationary, :no_adf}}
     end
   end
 

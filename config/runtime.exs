@@ -174,5 +174,12 @@ if config_env() != :test do
     # Pair whitelist: only allow pairs that appear robust in walk-forward.
     # Off by default — set to true after populating priv/runtime/pair_whitelist.json.
     pair_whitelist_enabled: System.get_env("PAIR_WHITELIST_ENABLED", "false") == "true",
-    pair_whitelist_path: System.get_env("PAIR_WHITELIST_PATH", "priv/runtime/pair_whitelist.json")
+    pair_whitelist_path: System.get_env("PAIR_WHITELIST_PATH", "priv/runtime/pair_whitelist.json"),
+    regime_filter_enabled: System.get_env("REGIME_FILTER_ENABLED", "false") == "true",
+    regime_max_realized_vol: String.to_float(System.get_env("REGIME_MAX_REALIZED_VOL", "1.0")),
+    regime_max_adf_pvalue:
+      (case System.get_env("REGIME_MAX_ADF_PVALUE") do
+         nil -> nil
+         s -> String.to_float(s)
+       end)
 end

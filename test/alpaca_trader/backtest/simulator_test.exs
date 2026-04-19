@@ -90,6 +90,22 @@ defmodule AlpacaTrader.Backtest.SimulatorTest do
       indices = Enum.map(result.equity_curve, &elem(&1, 0))
       assert indices == Enum.sort(indices)
     end
+
+    test "regime filter disabled by default (baseline unchanged)" do
+      closes_a = List.duplicate(100.0, 200)
+      closes_b = List.duplicate(100.0, 200)
+      result = AlpacaTrader.Backtest.Simulator.run_pair("A-B", closes_a, closes_b, %{})
+      assert is_list(result.trades)
+    end
+
+    test "regime filter with max_realized_vol=0 blocks all entries" do
+      closes_a = Enum.map(1..200, fn i -> 100.0 + :math.sin(i / 5.0) end)
+      closes_b = Enum.map(1..200, fn i -> 100.0 + :math.cos(i / 5.0) end)
+
+      cfg = %{regime_filter_enabled: true, regime_max_realized_vol: 0.0}
+      result = AlpacaTrader.Backtest.Simulator.run_pair("A-B", closes_a, closes_b, cfg)
+      assert result.trades == []
+    end
   end
 
   describe "Report.summarize/1" do

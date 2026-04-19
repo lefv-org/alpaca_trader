@@ -137,6 +137,9 @@ defmodule AlpacaTrader.Backtest.Simulator do
       config.require_cointegration and not cointegrated?(window_a, window_b, analysis, config) ->
         state
 
+      not regime_allows_entry?(analysis, window_a, window_b, config) ->
+        state
+
       true ->
         # Long the spread means long A, short B (hedge ratio scales B)
         # z > 0 means spread is above mean → expect down → short A, long B
@@ -312,6 +315,24 @@ defmodule AlpacaTrader.Backtest.Simulator do
          ) do
       {:ok, _} -> true
       {:reject, _} -> false
+    end
+  end
+
+  defp regime_allows_entry?(analysis, window_a, window_b, config) do
+    regime_opts = [
+      enabled: Map.get(config, :regime_filter_enabled, false),
+      max_realized_vol: Map.get(config, :regime_max_realized_vol, 1.0),
+      max_adf_pvalue: Map.get(config, :regime_max_adf_pvalue)
+    ]
+
+    spread_for_regime = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
+
+    case AlpacaTrader.RegimeDetector.allow_entry?(
+           %{spread: spread_for_regime, symbol_a_closes: window_a, bar_frequency: :hourly},
+           regime_opts
+         ) do
+      :ok -> true
+      {:blocked, _} -> false
     end
   end
 

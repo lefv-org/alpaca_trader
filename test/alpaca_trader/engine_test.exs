@@ -360,4 +360,13 @@ defmodule AlpacaTrader.EngineTest do
       assert %Engine.ArbitrageScanResult{} = result
     end
   end
+
+  describe "regime filter" do
+    test "regime filter flag is togglable" do
+      prev = Application.get_env(:alpaca_trader, :regime_filter_enabled, false)
+      Application.put_env(:alpaca_trader, :regime_filter_enabled, false)
+      on_exit(fn -> Application.put_env(:alpaca_trader, :regime_filter_enabled, prev) end)
+      assert AlpacaTrader.RegimeDetector.allow_entry?(%{spread: [], symbol_a_closes: []}, []) == :ok
+    end
+  end
 end

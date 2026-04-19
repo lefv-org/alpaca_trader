@@ -753,14 +753,53 @@ defmodule AlpacaTrader.Engine do
         []
 
       true ->
-        case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
+        case regime_gate(arb) do
           {:blocked, reason} ->
-            Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+            Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (regime): #{inspect(reason)}")
             []
 
           :ok ->
-            execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+            case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
+              {:blocked, reason} ->
+                Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+                []
+
+              :ok ->
+                execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+            end
         end
+    end
+  end
+
+  # ── REGIME GATE ────────────────────────────────────────────
+  # Block entries when realized vol is too high or when the spread has
+  # drifted out of stationarity since the last whitelist build. Feature
+  # flagged — defaults to :ok when disabled.
+
+  defp regime_gate(arb) do
+    if Application.get_env(:alpaca_trader, :regime_filter_enabled, false) do
+      with {:ok, closes_a} <- get_best_closes(arb.asset),
+           {:ok, closes_b} <- get_best_closes(arb.pair_asset) do
+        len = min(length(closes_a), length(closes_b))
+
+        if len >= 20 do
+          a = Enum.take(closes_a, -len)
+          b = Enum.take(closes_b, -len)
+          ratio = arb.hedge_ratio || SpreadCalculator.hedge_ratio(a, b)
+          spread = SpreadCalculator.spread_series(a, b, ratio)
+
+          AlpacaTrader.RegimeDetector.allow_entry?(
+            %{spread: spread, symbol_a_closes: a, bar_frequency: :hourly},
+            []
+          )
+        else
+          :ok
+        end
+      else
+        _ -> :ok
+      end
+    else
+      :ok
     end
   end
 

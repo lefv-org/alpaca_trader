@@ -115,10 +115,12 @@ defmodule Mix.Tasks.Preflight do
       human_report(report, account, positions, is_live)
     end
 
+    warnings_ok = allow_all
+
     exit_code =
       cond do
         Enum.any?(report, &(&1.severity == :blocking)) -> 2
-        Enum.any?(report, &(&1.severity == :warning)) -> 1
+        Enum.any?(report, &(&1.severity == :warning)) and not warnings_ok -> 1
         true -> 0
       end
 

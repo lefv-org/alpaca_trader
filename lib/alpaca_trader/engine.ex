@@ -986,7 +986,11 @@ defmodule AlpacaTrader.Engine do
           OrderExecutor.execute_pair_atomic(ctx, legs, pair_label, :entry)
 
         params ->
-          trade_ctx = OrderExecutor.build_leg_context(ctx, arb.asset)
+          # Use the symbol actually being traded — in long-only mode the
+          # buy leg may be arb.pair_asset (direction :long_b_short_a), not
+          # arb.asset. Fall back to arb.asset for tier-1 entries.
+          leg_symbol = Map.get(params, "symbol") || arb.asset
+          trade_ctx = OrderExecutor.build_leg_context(ctx, leg_symbol)
           {:ok, purchase} = OrderExecutor.execute_trade(trade_ctx, params)
           [purchase]
       end
@@ -1033,7 +1037,11 @@ defmodule AlpacaTrader.Engine do
           OrderExecutor.execute_pair_atomic(ctx, legs, pair_label, :exit)
 
         params ->
-          trade_ctx = OrderExecutor.build_leg_context(ctx, arb.asset)
+          # Use the symbol actually being sold — in long-only mode this may
+          # be arb.pair_asset, not arb.asset. Fall back to arb.asset for
+          # tier-1 exits.
+          leg_symbol = Map.get(params, "symbol") || arb.asset
+          trade_ctx = OrderExecutor.build_leg_context(ctx, leg_symbol)
           {:ok, purchase} = OrderExecutor.execute_trade(trade_ctx, params)
           [purchase]
       end
@@ -1248,7 +1256,10 @@ defmodule AlpacaTrader.Engine do
     end
   end
 
-  defp build_entry_params(ctx, %ArbitragePosition{tier: 1} = arb) do
+  @doc false
+  # Public only so EngineLongOnlyTest can exercise the flag-conditional
+  # branches without end-to-end scaffolding. Not intended as stable API.
+  def build_entry_params(ctx, %ArbitragePosition{tier: 1} = arb) do
     %{
       "side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
       "notional" => order_notional(ctx),
@@ -1256,7 +1267,7 @@ defmodule AlpacaTrader.Engine do
     }
   end
 
-  defp build_entry_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
+  def build_entry_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     {long_sym, short_sym} =
       case arb.direction do
         :long_a_short_b -> {arb.asset, arb.pair_asset}
@@ -1265,31 +1276,47 @@ defmodule AlpacaTrader.Engine do
 
     notional = order_notional(ctx, arb)
 
-    %{
-      pair: true,
-      legs: [
-        %{
-          "symbol" => long_sym,
-          "side" => "buy",
-          "notional" => notional,
-          "type" => "market",
-          "pair_leg" => true
-        },
-        %{
-          "symbol" => short_sym,
-          "side" => "sell",
-          "notional" => notional,
-          "type" => "market",
-          "pair_leg" => true
-        }
-      ]
-    }
+    if Application.get_env(:alpaca_trader, :long_only_mode, false) do
+      # Long-only rotation: skip the short leg entirely. Only the buy leg
+      # is sent to the broker. The pair relationship is still recorded via
+      # PairPositionStore for cointegration tracking + rotation.
+      _ = short_sym
+
+      %{
+        "symbol" => long_sym,
+        "side" => "buy",
+        "notional" => notional,
+        "type" => "market"
+      }
+    else
+      %{
+        pair: true,
+        legs: [
+          %{
+            "symbol" => long_sym,
+            "side" => "buy",
+            "notional" => notional,
+            "type" => "market",
+            "pair_leg" => true
+          },
+          %{
+            "symbol" => short_sym,
+            "side" => "sell",
+            "notional" => notional,
+            "type" => "market",
+            "pair_leg" => true
+          }
+        ]
+      }
+    end
   end
 
-  defp build_entry_params(ctx, _arb),
+  def build_entry_params(ctx, _arb),
     do: %{"side" => "buy", "notional" => order_notional(ctx), "type" => "market"}
 
-  defp build_exit_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
+  @doc false
+  # See build_entry_params/2 — exposed for targeted tests only.
+  def build_exit_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     # Reverse the entry: sell what was bought, buy back what was shorted
     {sell_sym, buy_sym} =
       case arb.direction do
@@ -1299,28 +1326,44 @@ defmodule AlpacaTrader.Engine do
 
     notional = order_notional(ctx, arb)
 
-    %{
-      pair: true,
-      legs: [
-        %{
-          "symbol" => sell_sym,
-          "side" => "sell",
-          "notional" => notional,
-          "type" => "market",
-          "pair_leg" => true
-        },
-        %{
-          "symbol" => buy_sym,
-          "side" => "buy",
-          "notional" => notional,
-          "type" => "market",
-          "pair_leg" => true
-        }
-      ]
-    }
+    if Application.get_env(:alpaca_trader, :long_only_mode, false) do
+      # Long-only exit: sell the long leg. Buying back the short leg is a
+      # no-op since we never took the short position.
+      # NOTE: log_closed_trade still reads prices for both asset_a and
+      # asset_b — in long-only mode the short-leg price change does not
+      # represent realized PnL. Follow-up: adjust PnL math for long-only.
+      _ = buy_sym
+
+      %{
+        "symbol" => sell_sym,
+        "side" => "sell",
+        "notional" => notional,
+        "type" => "market"
+      }
+    else
+      %{
+        pair: true,
+        legs: [
+          %{
+            "symbol" => sell_sym,
+            "side" => "sell",
+            "notional" => notional,
+            "type" => "market",
+            "pair_leg" => true
+          },
+          %{
+            "symbol" => buy_sym,
+            "side" => "buy",
+            "notional" => notional,
+            "type" => "market",
+            "pair_leg" => true
+          }
+        ]
+      }
+    end
   end
 
-  defp build_exit_params(ctx, arb) do
+  def build_exit_params(ctx, arb) do
     %{
       "side" => "sell",
       "notional" => order_notional(ctx),

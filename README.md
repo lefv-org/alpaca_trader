@@ -71,3 +71,9 @@ The trading-bot improvements are shipped behind env-var flags. All default **off
 | --- | --- | --- |
 | `SHADOW_MODE_ENABLED` | `false` | Log every engine entry/exit signal to JSONL. |
 | `SHADOW_LOG_PATH` | `priv/runtime/shadow_signals.jsonl` | Shadow log destination. |
+
+### Long-only rotation mode
+
+| Env var | Default | Description |
+| --- | --- | --- |
+| `LONG_ONLY_MODE` | `false` | Skip the short leg of pair trades — buy only the relatively-cheap leg on entry, sell it on exit. Use for accounts that can't short (e.g., Alpaca crypto, small equity accounts). Pair *selection* (cointegration, whitelist, regime filter) is unchanged. |

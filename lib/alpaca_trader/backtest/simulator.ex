@@ -17,7 +17,7 @@ defmodule AlpacaTrader.Backtest.Simulator do
   safety check to confirm the behaviors haven't drifted.
   """
 
-  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion}
+  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion, HalfLifeManager}
 
   @type bar :: %{required(:close) => float(), required(:timestamp) => DateTime.t()}
   @type config :: %{
@@ -157,6 +157,7 @@ defmodule AlpacaTrader.Backtest.Simulator do
           }
 
         notional = compute_notional(state.equity, spread, window_a, window_b, analysis, config)
+        hl = MeanReversion.half_life(spread)
 
         pos = %{
           side_a: side_a,
@@ -166,7 +167,8 @@ defmodule AlpacaTrader.Backtest.Simulator do
           entry_i: i,
           entry_z: z,
           hedge_ratio: analysis.hedge_ratio,
-          notional: notional
+          notional: notional,
+          half_life: hl
         }
 
         %{state | position: pos, bar_index: i}
@@ -177,9 +179,16 @@ defmodule AlpacaTrader.Backtest.Simulator do
     hold_bars = i - pos.entry_i
     z = (analysis && analysis.z_score) || 0.0
 
+    time_stop_mult = Map.get(config, :half_life_time_stop_mult, 2.0)
+
+    effective_time_stop =
+      HalfLifeManager.time_stop_bars(pos[:half_life], time_stop_mult,
+        fallback_bars: config.max_hold_bars
+      )
+
     exit_reason =
       cond do
-        hold_bars >= config.max_hold_bars -> :max_hold
+        hold_bars >= effective_time_stop -> :max_hold
         abs(z) >= config.stop_z -> :stop
         hold_bars >= 2 and crossed_exit_z?(pos.entry_z, z, config.exit_z) -> :target
         true -> nil
@@ -283,11 +292,23 @@ defmodule AlpacaTrader.Backtest.Simulator do
 
   defp initial_notional(config), do: config.notional
 
-  defp compute_notional(_equity, _spread, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
+  defp compute_notional(equity, spread, window_a, window_b, analysis, config) do
+    base = compute_base_notional(equity, spread, window_a, window_b, analysis, config)
+
+    if Map.get(config, :half_life_size_enabled, false) do
+      hl = MeanReversion.half_life(spread)
+      mult = HalfLifeManager.size_multiplier(hl)
+      base * mult
+    else
+      base
+    end
+  end
+
+  defp compute_base_notional(_equity, _spread, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
     config.notional
   end
 
-  defp compute_notional(equity, spread, _window_a, _window_b, _analysis, config) do
+  defp compute_base_notional(equity, spread, _window_a, _window_b, _analysis, config) do
     # Vol-scaled: target_risk / (spread_std * stop_z)
     n = length(spread)
     mean = Enum.sum(spread) / n

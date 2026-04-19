@@ -6,7 +6,7 @@ defmodule AlpacaTrader.Engine do
   require Logger
 
   alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships, RotationEvaluator}
-  alias AlpacaTrader.Arbitrage.SpreadCalculator
+  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion, HalfLifeManager}
   alias AlpacaTrader.{BarsStore, PairPositionStore}
   alias AlpacaTrader.Engine.OrderExecutor
 
@@ -129,8 +129,13 @@ defmodule AlpacaTrader.Engine do
             "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)}) [limit: #{cut_loss}%]")
         end
 
-      # 5. TIME EXIT: held too long
-      pos.bars_held >= pos.max_hold_bars ->
+      # 5. TIME EXIT: half-life-aware time-stop (falls back to max_hold_bars when
+      # half-life is unavailable). Keeps dead-money trades from decaying further.
+      HalfLifeManager.should_time_stop?(pos.bars_held,
+        half_life: pos.half_life,
+        multiplier: Application.get_env(:alpaca_trader, :half_life_time_stop_mult, 2.0),
+        fallback_bars: pos.max_hold_bars
+      ) ->
         exit_signal(asset, related, pos,
           "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}")
 
@@ -821,6 +826,9 @@ defmodule AlpacaTrader.Engine do
 
     # Track the position if any leg executed
     if arb.tier in [2, 3] and Enum.any?(trades, &(&1.action in [:bought, :sold])) do
+      spread_series = recompute_spread_series(arb.asset, arb.pair_asset)
+      half_life = spread_series && MeanReversion.half_life(spread_series)
+
       PairPositionStore.open_position(%{
         asset_a: arb.asset,
         asset_b: arb.pair_asset,
@@ -829,7 +837,8 @@ defmodule AlpacaTrader.Engine do
         z_score: arb.z_score,
         hedge_ratio: arb.hedge_ratio,
         entry_price_a: get_live_price(ctx, arb.asset),
-        entry_price_b: get_live_price(ctx, arb.pair_asset)
+        entry_price_b: get_live_price(ctx, arb.pair_asset),
+        half_life: half_life
       })
     end
 
@@ -948,7 +957,7 @@ defmodule AlpacaTrader.Engine do
     pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
     fixed_notional = Float.round(equity * pct, 2)
 
-    notional =
+    base_notional =
       case {position_sizing_mode(), arb} do
         {:vol_scaled, %ArbitragePosition{tier: tier, asset: a, pair_asset: b, hedge_ratio: hr}}
         when tier in [2, 3] and is_binary(a) and is_binary(b) ->
@@ -958,8 +967,33 @@ defmodule AlpacaTrader.Engine do
           fixed_notional
       end
 
+    notional = apply_half_life_size_multiplier(base_notional, arb)
+
     # Alpaca minimum notional is $1
     to_string(max(Float.round(notional, 2), 1.0))
+  end
+
+  # Optional size-by-half-life: scales notional inversely with the OU half-life
+  # of the pair's spread (clamped by HalfLifeManager). Off by default.
+  defp apply_half_life_size_multiplier(base_notional, arb) do
+    if Application.get_env(:alpaca_trader, :half_life_size_enabled, false) do
+      hl =
+        case arb do
+          %ArbitragePosition{tier: tier, asset: a, pair_asset: b}
+          when tier in [2, 3] and is_binary(a) and is_binary(b) ->
+            case recompute_spread_series(a, b) do
+              nil -> nil
+              spread -> MeanReversion.half_life(spread)
+            end
+
+          _ ->
+            nil
+        end
+
+      base_notional * HalfLifeManager.size_multiplier(hl)
+    else
+      base_notional
+    end
   end
 
   # Vol-scaled sizing: notional s.t. each position risks the same dollar amount.

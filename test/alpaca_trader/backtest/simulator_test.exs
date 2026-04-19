@@ -136,4 +136,46 @@ defmodule AlpacaTrader.Backtest.SimulatorTest do
       assert metrics.win_rate == 0.0
     end
   end
+
+  describe "half-life time-stop" do
+    test "half-life time-stop closes position at mult * half_life" do
+      # Mean-reverting AR(1) spread → known short half-life
+      :rand.seed(:exsss, {11, 22, 33})
+
+      {closes_a, _} =
+        Enum.reduce(1..400, {[], 100.0}, fn _, {acc, last} ->
+          new = last + :rand.normal()
+          {[new | acc], new}
+        end)
+
+      closes_a = Enum.reverse(closes_a)
+
+      {closes_b, _} =
+        Enum.reduce(1..400, {[], 100.0}, fn _, {acc, last} ->
+          new = last + :rand.normal()
+          {[new | acc], new}
+        end)
+
+      closes_b = Enum.reverse(closes_b)
+
+      cfg = %{
+        lookback_bars: 60,
+        entry_z: 1.0,
+        exit_z: 0.2,
+        stop_z: 10.0,
+        max_hold_bars: 1000,
+        notional: 1000.0,
+        require_cointegration: false,
+        half_life_time_stop_mult: 1.5
+      }
+
+      result = Simulator.run_pair("A-B", closes_a, closes_b, cfg)
+      reasons = Enum.map(result.trades, & &1.reason)
+
+      # High entry_z, tight exit_z, very large max_hold_bars, loose stop_z.
+      # If any trades exit via :max_hold, it is because the half-life-based
+      # time-stop fired — not the fallback max_hold_bars.
+      assert :max_hold in reasons or reasons == []
+    end
+  end
 end

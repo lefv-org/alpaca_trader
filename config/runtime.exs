@@ -181,5 +181,11 @@ if config_env() != :test do
       (case System.get_env("REGIME_MAX_ADF_PVALUE") do
          nil -> nil
          s -> String.to_float(s)
-       end)
+       end),
+    # Half-life operational levers (Task 2).
+    # - Time-stop: force-close at `mult * half_life` bars (falls back to per-position
+    #   max_hold_bars when half-life is nil). Always on as a safety valve.
+    # - Sizing: scale notional inversely with half-life. Off by default.
+    half_life_time_stop_mult: String.to_float(System.get_env("HALF_LIFE_TIME_STOP_MULT", "2.0")),
+    half_life_size_enabled: System.get_env("HALF_LIFE_SIZE_ENABLED", "false") == "true"
 end

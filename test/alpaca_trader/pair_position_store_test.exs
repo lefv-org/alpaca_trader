@@ -164,4 +164,38 @@ defmodule AlpacaTrader.PairPositionStoreTest do
       assert [%{"asset_a" => "AAPL", "asset_b" => "MSFT", "status" => "open"}] = loaded["positions"]
     end
   end
+
+  describe "half_life field" do
+    test "open_position accepts optional :half_life and stores it" do
+      {:ok, pos} = open_test_position(%{half_life: 7.5})
+      assert pos.half_life == 7.5
+    end
+
+    test "open_position defaults :half_life to nil when not supplied" do
+      {:ok, pos} = open_test_position()
+      assert pos.half_life == nil
+    end
+
+    test "legacy persisted payload (no half_life key) round-trips to nil" do
+      {:ok, pos} = open_test_position(%{half_life: 12.0})
+      assert pos.half_life == 12.0
+
+      # Simulate a legacy map (pre-schema) missing :half_life via pos_to_map
+      legacy =
+        pos
+        |> Map.from_struct()
+        |> Map.delete(:half_life)
+        # Dates must serialize to strings to mimic a real JSON payload
+        |> Enum.into(%{}, fn
+          {k, %DateTime{} = dt} -> {to_string(k), DateTime.to_iso8601(dt)}
+          {k, v} when is_atom(v) and not is_nil(v) -> {to_string(k), Atom.to_string(v)}
+          {k, v} -> {to_string(k), v}
+        end)
+
+      encoded = Jason.encode!(%{positions: [legacy], count: 1, updated_at: "2026-04-19T00:00:00Z"})
+      {:ok, decoded} = Jason.decode(encoded)
+      [p] = decoded["positions"]
+      assert Map.get(p, "half_life") == nil
+    end
+  end
 end

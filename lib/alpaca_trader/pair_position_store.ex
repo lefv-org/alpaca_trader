@@ -37,6 +37,9 @@ defmodule AlpacaTrader.PairPositionStore do
       :entry_price_a,
       :entry_price_b,
       :entry_time,
+      # OU half-life captured at entry from the spread series (nil if unavailable).
+      # Used downstream by HalfLifeManager to set the time-stop bar budget.
+      :half_life,
 
       # Current state
       :current_z_score,
@@ -75,6 +78,7 @@ defmodule AlpacaTrader.PairPositionStore do
       entry_price_a: attrs[:entry_price_a],
       entry_price_b: attrs[:entry_price_b],
       entry_time: DateTime.utc_now(),
+      half_life: attrs[:half_life],
       current_z_score: attrs.z_score,
       bars_held: 0,
       last_updated: DateTime.utc_now(),
@@ -314,6 +318,7 @@ defmodule AlpacaTrader.PairPositionStore do
       entry_price_a: m["entry_price_a"],
       entry_price_b: m["entry_price_b"],
       entry_time: parse_dt(m["entry_time"]),
+      half_life: m["half_life"],
       current_z_score: m["current_z_score"],
       bars_held: m["bars_held"] || 0,
       last_updated: parse_dt(m["last_updated"]),

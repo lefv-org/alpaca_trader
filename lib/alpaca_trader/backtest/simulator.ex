@@ -156,7 +156,7 @@ defmodule AlpacaTrader.Backtest.Simulator do
             fill_price(price_b_i, side_b, config)
           }
 
-        notional = compute_notional(state.equity, window_a, window_b, analysis, config)
+        notional = compute_notional(state.equity, spread, window_a, window_b, analysis, config)
 
         pos = %{
           side_a: side_a,
@@ -283,16 +283,15 @@ defmodule AlpacaTrader.Backtest.Simulator do
 
   defp initial_notional(config), do: config.notional
 
-  defp compute_notional(_equity, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
+  defp compute_notional(_equity, _spread, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
     config.notional
   end
 
-  defp compute_notional(equity, window_a, window_b, analysis, config) do
+  defp compute_notional(equity, spread, _window_a, _window_b, _analysis, config) do
     # Vol-scaled: target_risk / (spread_std * stop_z)
-    spread = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
     n = length(spread)
     mean = Enum.sum(spread) / n
-    variance = Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean, 2) end) / n
+    variance = Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean, 2) end) / max(n - 1, 1)
     std = :math.sqrt(variance)
 
     if std > 0 do

@@ -1,4 +1,4 @@
-.PHONY: help dev dev-force start start-force setup test lint format build check-env preflight preflight-force flatten _kill_port
+.PHONY: help dev dev-force start start-force setup test lint format build check-env preflight preflight-force flatten unquarantine _kill_port _unquarantine
 .DEFAULT_GOAL := help
 
 ## help: Show this help message
@@ -17,6 +17,19 @@ help:
 ## check-env:    Verify .env.example has all keys present in .env (drift detection)
 ## preflight:    Pre-flight safety check (runs automatically before start)
 ## flatten:      Close open positions safely (PDT-aware)
+## unquarantine: Strip macOS Gatekeeper quarantine from esbuild/tailwind/mac_listener binaries
+
+# Strip macOS Gatekeeper quarantine xattr from prebuilt binaries downloaded
+# by mix deps (esbuild, tailwind, mac_listener). Safe no-op on non-macOS.
+# Runs silently as a dev prerequisite so Gatekeeper popups don't block boot.
+_unquarantine:
+	@if [ "$$(uname)" = "Darwin" ]; then \
+	  xattr -dr com.apple.quarantine _build deps 2>/dev/null || true; \
+	fi
+
+## unquarantine: Strip macOS Gatekeeper quarantine (manual invocation)
+unquarantine: _unquarantine
+	@echo "quarantine stripped from _build and deps"
 
 # Kill whatever is on PORT (default 4000), then start
 _kill_port:
@@ -49,7 +62,7 @@ print(f\"  Account:    {d.get('account_env', 'unknown')}\"); \
 	fi
 
 # Start the Phoenix dev server, full output → also logs to output.log
-dev: _kill_port preflight
+dev: _kill_port _unquarantine preflight
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	trap '$(_session_summary)' INT TERM; \
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
@@ -58,7 +71,7 @@ dev: _kill_port preflight
 # Same as dev but acknowledges all soft-blockers (small equity + PDT risk).
 # Use only when you understand the risks — one day trade on a PDT-risk account
 # locks it for 90 days.
-dev-force: _kill_port preflight-force
+dev-force: _kill_port _unquarantine preflight-force
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	trap '$(_session_summary)' INT TERM; \
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
@@ -77,7 +90,7 @@ flatten:
 	@set -a; [ -f .env ] && . ./.env; set +a; mix flatten
 
 # Same as start but acknowledges all soft-blockers
-start-force: _kill_port preflight-force
+start-force: _kill_port _unquarantine preflight-force
 	@echo "══════════════════════════════════════════════"
 	@echo "  ALPACA TRADER  ·  FORCED START  ·  soft blocks ACKed"
 	@echo "══════════════════════════════════════════════"
@@ -91,7 +104,7 @@ start-force: _kill_port preflight-force
 	$(_session_summary)
 
 # Start trading bot in foreground — filters to trades + LLM decisions
-start: _kill_port preflight
+start: _kill_port _unquarantine preflight
 	@echo "══════════════════════════════════════════════"
 	@echo "  ALPACA TRADER  ·  paper account"
 	@echo "  trades · LLM decisions · scan results"

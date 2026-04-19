@@ -1,4 +1,4 @@
-.PHONY: help dev dev-force start start-force setup test lint format build check-env preflight preflight-force flatten unquarantine _kill_port _unquarantine
+.PHONY: help dev dev-force start start-force setup test lint format build check-env preflight preflight-force flatten unquarantine _kill_port _unquarantine _build_mac_listener
 .DEFAULT_GOAL := help
 
 ## help: Show this help message
@@ -27,6 +27,21 @@ _unquarantine:
 	  xattr -dr com.apple.quarantine _build deps 2>/dev/null || true; \
 	fi
 
+# Build mac_listener (file_system/priv) so Phoenix live-reload works on macOS.
+# The file_system hex package ships C source but no prebuilt macOS binary;
+# the package's own compile step only runs when the source is newer than the
+# target, so a fresh dep install leaves priv/mac_listener absent and emits
+# "Can't find executable mac_listener" every boot.
+_build_mac_listener:
+	@if [ "$$(uname)" = "Darwin" ] && [ -d deps/file_system/c_src/mac ] && [ ! -f deps/file_system/priv/mac_listener ]; then \
+	  echo "Building mac_listener (Phoenix live-reload)..."; \
+	  xcrun -r clang -framework CoreFoundation -framework CoreServices \
+	    -Wno-deprecated-declarations \
+	    deps/file_system/c_src/mac/*.c \
+	    -o deps/file_system/priv/mac_listener 2>/dev/null || \
+	    echo "  (mac_listener build failed — live-reload will be disabled; not fatal)"; \
+	fi
+
 ## unquarantine: Strip macOS Gatekeeper quarantine (manual invocation)
 unquarantine: _unquarantine
 	@echo "quarantine stripped from _build and deps"
@@ -45,7 +60,7 @@ _kill_port:
 _session_summary = mix session_summary 2>/dev/null || true
 
 # Start the Phoenix dev server, full output → also logs to output.log
-dev: _kill_port _unquarantine preflight
+dev: _kill_port _unquarantine _build_mac_listener preflight
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	trap '$(_session_summary)' INT TERM; \
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
@@ -54,7 +69,7 @@ dev: _kill_port _unquarantine preflight
 # Same as dev but acknowledges all soft-blockers (small equity + PDT risk).
 # Use only when you understand the risks — one day trade on a PDT-risk account
 # locks it for 90 days.
-dev-force: _kill_port _unquarantine preflight-force
+dev-force: _kill_port _unquarantine _build_mac_listener preflight-force
 	@set -a; [ -f .env ] && . ./.env; set +a; \
 	trap '$(_session_summary)' INT TERM; \
 	elixir --no-halt -S mix phx.server 2>&1 | tee -a output.log; \
@@ -73,7 +88,7 @@ flatten:
 	@set -a; [ -f .env ] && . ./.env; set +a; mix flatten
 
 # Same as start but acknowledges all soft-blockers
-start-force: _kill_port _unquarantine preflight-force
+start-force: _kill_port _unquarantine _build_mac_listener preflight-force
 	@echo "══════════════════════════════════════════════"
 	@echo "  ALPACA TRADER  ·  FORCED START  ·  soft blocks ACKed"
 	@echo "══════════════════════════════════════════════"
@@ -87,7 +102,7 @@ start-force: _kill_port _unquarantine preflight-force
 	$(_session_summary)
 
 # Start trading bot in foreground — filters to trades + LLM decisions
-start: _kill_port _unquarantine preflight
+start: _kill_port _unquarantine _build_mac_listener preflight
 	@echo "══════════════════════════════════════════════"
 	@echo "  ALPACA TRADER  ·  paper account"
 	@echo "  trades · LLM decisions · scan results"

@@ -24,6 +24,49 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   alias AlpacaTrader.PositionReconciler
 
   @doc """
+  Construct an order payload given the desired fill mode. Pure — no API call.
+
+  `mode`:
+  - `:market` — legacy market order (`type: "market"`, `time_in_force: "day"`).
+  - `:marketable_limit` — IOC limit order at `ask + k*spread` (buy) or
+    `bid - k*spread` (sell). Filling against the opposite side of the book
+    caps tail slippage while giving `SlippageMeasurement` a reference price.
+
+  `quote` is a positional map containing `:bid` and `:ask` (numeric).
+
+  Options:
+  - `:mode` — `:market` (default) or `:marketable_limit`
+  - `:spread_mult` — k, defaults to 0.25
+  """
+  def build_order(%{symbol: s, qty: q, side: side}, quote, opts \\ []) when is_map(quote) do
+    mode = Keyword.get(opts, :mode, :market)
+    spread_mult = Keyword.get(opts, :spread_mult, 0.25)
+
+    case mode do
+      :market ->
+        %{symbol: s, qty: q, side: side, type: "market", time_in_force: "day"}
+
+      :marketable_limit ->
+        limit_price = marketable_limit_price_pure(side, quote.bid, quote.ask, spread_mult)
+
+        %{
+          symbol: s,
+          qty: q,
+          side: side,
+          type: "limit",
+          time_in_force: "ioc",
+          limit_price: limit_price
+        }
+    end
+  end
+
+  defp marketable_limit_price_pure(side, bid, ask, k) when side in [:buy, "buy"],
+    do: ask + k * (ask - bid)
+
+  defp marketable_limit_price_pure(side, bid, ask, k) when side in [:sell, "sell"],
+    do: bid - k * (ask - bid)
+
+  @doc """
   Submit a single order for one symbol, with safety preflights (tradable,
   market open, PDT, shorting, buying power, fractionable).
   """
@@ -100,6 +143,19 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
             emoji   = if side == "buy", do: "🟢", else: "🔴"
             qty_str = if params["notional"], do: "$#{params["notional"]}", else: "qty=#{params["qty"]}"
             Logger.info("[Trade] #{emoji} #{String.upcase(side)} #{ctx.symbol} #{qty_str} status=#{order["status"]}")
+
+            # Structured fill metadata — SlippageMeasurement compares filled price
+            # vs limit_price to quantify effective slippage on marketable-limit fills.
+            Logger.info(
+              "[OrderExecutor] submitted: " <>
+                inspect(%{
+                  mode: order_type,
+                  side: side,
+                  symbol: ctx.symbol,
+                  limit_price: Map.get(order_params, :limit_price),
+                  status: order["status"]
+                })
+            )
             {:ok,
              %PurchaseContext{
                action: action,

@@ -171,6 +171,10 @@ if config_env() != :test do
                        _ -> :market
                      end),
     order_marketable_limit_tolerance_bps: String.to_integer(System.get_env("ORDER_MARKETABLE_LIMIT_TOLERANCE_BPS", "50")),
+    # Spread multiplier k for `build_order/3` marketable-limit mode:
+    #   buy  limit_price = ask + k * (ask - bid)
+    #   sell limit_price = bid - k * (ask - bid)
+    marketable_limit_spread_mult: String.to_float(System.get_env("MARKETABLE_LIMIT_SPREAD_MULT", "0.25")),
     # Pair whitelist: only allow pairs that appear robust in walk-forward.
     # Off by default — set to true after populating priv/runtime/pair_whitelist.json.
     pair_whitelist_enabled: System.get_env("PAIR_WHITELIST_ENABLED", "false") == "true",

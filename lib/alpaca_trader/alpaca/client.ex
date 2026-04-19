@@ -121,6 +121,51 @@ defmodule AlpacaTrader.Alpaca.Client do
     data_client() |> Req.get(url: "/v2/stocks/snapshots", params: [symbols: joined, feed: "iex"]) |> handle()
   end
 
+  @doc """
+  Latest top-of-book quote for a single symbol. Routes to the stock or crypto
+  quote endpoint based on symbol shape (crypto pairs contain `/`, e.g. "BTC/USD").
+
+  Returns `{:ok, %{bid: float, ask: float}}` on success, `{:error, reason}` otherwise.
+  Used by the marketable-limit order path to anchor the limit price.
+  """
+  def latest_quote(symbol) when is_binary(symbol) do
+    cond do
+      String.contains?(symbol, "/") ->
+        data_client()
+        |> Req.get(url: "/v1beta3/crypto/us/latest/quotes", params: [symbols: symbol])
+        |> handle()
+        |> extract_quote(symbol, :crypto)
+
+      true ->
+        data_client()
+        |> Req.get(url: "/v2/stocks/#{symbol}/quotes/latest", params: [feed: "iex"])
+        |> handle()
+        |> extract_quote(symbol, :stock)
+    end
+  end
+
+  defp extract_quote({:ok, body}, symbol, :stock) do
+    case get_in(body, ["quote"]) do
+      %{"bp" => bp, "ap" => ap} when is_number(bp) and is_number(ap) ->
+        {:ok, %{bid: bp / 1.0, ask: ap / 1.0}}
+
+      _ ->
+        {:error, {:no_quote, symbol}}
+    end
+  end
+
+  defp extract_quote({:ok, body}, symbol, :crypto) do
+    case get_in(body, ["quotes", symbol]) do
+      %{"bp" => bp, "ap" => ap} when is_number(bp) and is_number(ap) ->
+        {:ok, %{bid: bp / 1.0, ask: ap / 1.0}}
+
+      _ ->
+        {:error, {:no_quote, symbol}}
+    end
+  end
+
+  defp extract_quote({:error, _} = err, _symbol, _kind), do: err
+
   def get_stock_bars(symbols, params \\ %{}) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
     start = Date.utc_today() |> Date.add(-90) |> Date.to_iso8601()

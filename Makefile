@@ -40,26 +40,9 @@ _kill_port:
 	  echo "$$pids" | xargs kill -9 2>/dev/null || true; \
 	fi
 
-# Print session P&L from gain accumulator JSON
-_session_summary = \
-	GAIN_FILE=$${GAIN_ACCUMULATOR_PATH:-priv/runtime/gain_accumulator.json}; \
-	if [ -f "$$GAIN_FILE" ]; then \
-	  echo ""; \
-	  echo "══════════════════════════════════════════════"; \
-	  echo "  SESSION SUMMARY"; \
-	  echo "──────────────────────────────────────────────"; \
-	  python3 -c " \
-import json, sys; \
-d = json.load(open('$$GAIN_FILE')); \
-gain = d.get('gain', 0); \
-sym = '📈' if gain >= 0 else '📉'; \
-print(f\"  Principal:  \$${d['principal']:,.2f}\"); \
-print(f\"  Equity:     \$${d.get('equity', d['principal']):,.2f}\"); \
-print(f\"  Session P&L: {sym} \$${gain:+,.2f}\"); \
-print(f\"  Account:    {d.get('account_env', 'unknown')}\"); \
-" 2>/dev/null || echo "  (could not read session data)"; \
-	  echo "══════════════════════════════════════════════"; \
-	fi
+# Print session P&L using LIVE Alpaca equity (not stale JSON snapshot).
+# Falls back to cached values if the API call fails.
+_session_summary = mix session_summary 2>/dev/null || true
 
 # Start the Phoenix dev server, full output → also logs to output.log
 dev: _kill_port _unquarantine preflight

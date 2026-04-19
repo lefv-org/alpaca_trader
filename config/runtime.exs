@@ -228,5 +228,11 @@ if config_env() != :test do
     # JSONL log — used to detect silent drift between engine-intended
     # activity and live fills. Off by default: zero-work no-op when false.
     shadow_mode_enabled: System.get_env("SHADOW_MODE_ENABLED", "false") == "true",
-    shadow_log_path: System.get_env("SHADOW_LOG_PATH", "priv/runtime/shadow_signals.jsonl")
+    shadow_log_path: System.get_env("SHADOW_LOG_PATH", "priv/runtime/shadow_signals.jsonl"),
+    # Long-only rotation mode. When true, tier 2/3 pair trades emit only the
+    # BUY leg on entry and only the SELL leg on exit — the short leg is
+    # dropped. Pair *selection* (cointegration, whitelist, regime filter)
+    # is unchanged. Intended for accounts that cannot short (e.g. Alpaca
+    # crypto, small equity accounts). Default false for backward compat.
+    long_only_mode: System.get_env("LONG_ONLY_MODE", "false") == "true"
 end

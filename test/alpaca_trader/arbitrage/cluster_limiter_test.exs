@@ -72,5 +72,54 @@ defmodule AlpacaTrader.Arbitrage.ClusterLimiterTest do
                  max_per_cluster: 3
                )
     end
+
+    test "counts positions, not legs, against max_per_cluster (regression)" do
+      # A and B are perfectly correlated — same cluster.
+      series = %{
+        "A" => [1.0, 2.0, 3.0, 4.0],
+        "B" => [1.0, 2.0, 3.0, 4.0],
+        "C" => [10.0, 11.0, 12.0, 13.0]
+      }
+
+      # One open position; both its legs are in the A-B cluster.
+      # With max_per_cluster: 2, this should count as 1 position, not 2 legs.
+      open = [%{asset_a: "A", asset_b: "B"}]
+
+      # Entering a new pair with one leg in the same cluster — count becomes 2,
+      # which equals max_per_cluster; block should fire on the SECOND entry,
+      # not this one.
+      assert :ok =
+               AlpacaTrader.Arbitrage.ClusterLimiter.allow_entry?(
+                 %{asset_a: "A", asset_b: "C"},
+                 open,
+                 series: series,
+                 correlation_threshold: 0.9,
+                 max_per_cluster: 2
+               )
+    end
+
+    test "blocks when positions (not legs) reach max_per_cluster" do
+      series = %{
+        "A" => [1.0, 2.0, 3.0, 4.0],
+        "B" => [1.0, 2.0, 3.0, 4.0],
+        "C" => [1.0, 2.0, 3.0, 4.0],
+        "D" => [10.0, 11.0, 12.0, 13.0]
+      }
+
+      # Two open positions, each with both legs in the A-B-C cluster → count = 2.
+      open = [
+        %{asset_a: "A", asset_b: "B"},
+        %{asset_a: "B", asset_b: "C"}
+      ]
+
+      assert {:blocked, {:cluster_full, _}} =
+               AlpacaTrader.Arbitrage.ClusterLimiter.allow_entry?(
+                 %{asset_a: "A", asset_b: "D"},
+                 open,
+                 series: series,
+                 correlation_threshold: 0.9,
+                 max_per_cluster: 2
+               )
+    end
   end
 end

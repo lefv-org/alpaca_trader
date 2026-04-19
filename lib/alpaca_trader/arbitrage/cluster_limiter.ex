@@ -69,15 +69,14 @@ defmodule AlpacaTrader.Arbitrage.ClusterLimiter do
 
     new_symbols = [arb.asset_a, arb.asset_b]
 
-    open_symbols =
-      Enum.flat_map(open_positions, fn p -> [Map.get(p, :asset_a), Map.get(p, :asset_b)] end)
-      |> Enum.reject(&is_nil/1)
-
     Enum.find_value(new_symbols, :ok, fn sym ->
       cluster = Map.get(cluster_of, sym, MapSet.new([sym]))
 
       count =
-        Enum.count(open_symbols, fn s -> MapSet.member?(cluster, s) end)
+        Enum.count(open_positions, fn p ->
+          legs = [Map.get(p, :asset_a), Map.get(p, :asset_b)] |> Enum.reject(&is_nil/1)
+          Enum.any?(legs, fn s -> MapSet.member?(cluster, s) end)
+        end)
 
       if count >= max_per do
         {:blocked, {:cluster_full, cluster |> MapSet.to_list() |> Enum.sort()}}

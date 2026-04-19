@@ -127,4 +127,33 @@ defmodule AlpacaTrader.BarsStoreTest do
       assert length(returns) == 3
     end
   end
+
+  describe "recent_closes/2" do
+    test "returns [] for unknown symbol" do
+      assert BarsStore.recent_closes("NOPE", 5) == []
+    end
+
+    test "returns closes in timestamp-ascending order" do
+      BarsStore.put_all_bars(%{
+        "AAPL" => [
+          %{"t" => "2026-04-10T00:00:00Z", "c" => 110.0},
+          %{"t" => "2026-04-08T00:00:00Z", "c" => 100.0},
+          %{"t" => "2026-04-09T00:00:00Z", "c" => 105.0}
+        ]
+      })
+
+      assert BarsStore.recent_closes("AAPL", 10) == [100.0, 105.0, 110.0]
+    end
+
+    test "truncates to the last n closes" do
+      closes =
+        for i <- 0..9 do
+          %{"t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z", "c" => 100.0 + i}
+        end
+
+      BarsStore.put_all_bars(%{"AAPL" => closes})
+
+      assert BarsStore.recent_closes("AAPL", 3) == [107.0, 108.0, 109.0]
+    end
+  end
 end

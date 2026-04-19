@@ -179,6 +179,9 @@ if config_env() != :test do
     # Off by default — set to true after populating priv/runtime/pair_whitelist.json.
     pair_whitelist_enabled: System.get_env("PAIR_WHITELIST_ENABLED", "false") == "true",
     pair_whitelist_path: System.get_env("PAIR_WHITELIST_PATH", "priv/runtime/pair_whitelist.json"),
+    # Weekly PairRecointegrationJob: how many recent bars to re-ADF against.
+    recointegration_lookback_bars:
+      String.to_integer(System.get_env("RECOINTEGRATION_LOOKBACK_BARS", "500")),
     regime_filter_enabled: System.get_env("REGIME_FILTER_ENABLED", "false") == "true",
     regime_max_realized_vol: String.to_float(System.get_env("REGIME_MAX_REALIZED_VOL", "1.0")),
     regime_max_adf_pvalue:

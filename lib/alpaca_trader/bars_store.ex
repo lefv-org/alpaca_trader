@@ -82,6 +82,18 @@ defmodule AlpacaTrader.BarsStore do
     end
   end
 
+  @doc """
+  Return the last `n` close prices for a symbol, timestamp-ascending.
+
+  Returns `[]` when the symbol is unknown or has no bars.
+  """
+  def recent_closes(symbol, n) when is_integer(n) and n > 0 do
+    case get_closes(symbol) do
+      {:ok, closes} when is_list(closes) -> Enum.take(closes, -n)
+      _ -> []
+    end
+  end
+
   defp compute_returns(prices) do
     prices
     |> Enum.chunk_every(2, 1, :discard)

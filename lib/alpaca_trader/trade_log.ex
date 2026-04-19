@@ -72,16 +72,30 @@ defmodule AlpacaTrader.TradeLog do
     if n < 10 do
       %{}
     else
-      {wins, losses} = Enum.split_with(pnl_pcts, &(&1 > 0))
+      # Partition explicitly: wins are strictly > 0, losses strictly < 0.
+      # Break-even trades (pnl_pct == 0) are excluded from both buckets so
+      # they don't drag avg_loss_pct toward zero and inflate payoff ratio.
+      wins = Enum.filter(pnl_pcts, &(&1 > 0))
+      losses = Enum.filter(pnl_pcts, &(&1 < 0))
 
-      if wins == [] or losses == [] do
-        %{}
-      else
-        %{
-          win_rate: length(wins) / n,
-          avg_win_pct: Enum.sum(wins) / length(wins),
-          avg_loss_pct: abs(Enum.sum(losses) / length(losses))
-        }
+      avg_loss_pct =
+        if losses == [], do: 0.0, else: abs(Enum.sum(losses) / length(losses))
+
+      cond do
+        wins == [] or losses == [] ->
+          %{}
+
+        # Pathological edge case: avg loss rounds to ~0 → runaway payoff ratio.
+        # Fall back to the hard cap by returning no stats.
+        avg_loss_pct < 1.0e-6 ->
+          %{}
+
+        true ->
+          %{
+            win_rate: length(wins) / n,
+            avg_win_pct: Enum.sum(wins) / length(wins),
+            avg_loss_pct: avg_loss_pct
+          }
       end
     end
   end

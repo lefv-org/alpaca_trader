@@ -209,7 +209,13 @@ defmodule AlpacaTrader.Backtest.SimulatorTest do
       }
 
       result = AlpacaTrader.Backtest.Simulator.run_pair("A-B", closes_a, closes_b, cfg)
-      assert Enum.all?(result.trades, fn t -> t.notional <= 10_000.0 end)
+
+      # Kelly clip should reduce notional to ≤ equity * max_cap_pct = 10_000 * 0.01 = 100
+      # (with small numerical tolerance). Verify at least the later trades are capped.
+      if length(result.trades) > 0 do
+        assert Enum.all?(result.trades, fn t -> t.notional <= 150.0 end),
+               "expected Kelly cap (~$100) to bound trade notionals; got: #{inspect(Enum.map(result.trades, & &1.notional))}"
+      end
     end
   end
 end

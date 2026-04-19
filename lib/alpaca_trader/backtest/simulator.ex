@@ -313,17 +313,20 @@ defmodule AlpacaTrader.Backtest.Simulator do
   defp kelly_clip(notional, state, equity_dollars, config) do
     if Map.get(config, :kelly_enabled, false) and equity_dollars > 0 do
       stats = running_stats(state.trades)
+      max_cap_pct = Map.get(config, :kelly_max_cap_pct, 0.05)
 
       cap =
         AlpacaTrader.Arbitrage.KellySizer.size_cap(equity_dollars, stats,
           fraction: Map.get(config, :kelly_fraction, 0.5),
-          max_cap_pct: Map.get(config, :kelly_max_cap_pct, 0.10)
+          max_cap_pct: max_cap_pct
         )
 
-      # Never clip below a minimum viable notional; if the Kelly cap is <= 0
-      # (equity collapse, etc.), fall back to the incoming notional rather
-      # than creating a divide-by-zero downstream.
-      if cap > 0, do: min(notional, cap), else: notional
+      # If Kelly's edge estimate produces a non-positive cap (no edge, or raw
+      # Kelly fraction ≤ 0 on the trade history so far), fall back to the
+      # hard policy ceiling rather than the raw notional — otherwise a
+      # "don't trade" Kelly signal would silently re-enable full sizing.
+      effective_cap = if cap > 0, do: cap, else: equity_dollars * max_cap_pct
+      if effective_cap > 0, do: min(notional, effective_cap), else: notional
     else
       notional
     end
@@ -338,19 +341,25 @@ defmodule AlpacaTrader.Backtest.Simulator do
       %{}
     else
       wins = Enum.filter(trades, &(&1.pnl_pct > 0))
-      losses = Enum.filter(trades, &(&1.pnl_pct <= 0))
+      losses = Enum.filter(trades, &(&1.pnl_pct < 0))
       win_n = length(wins)
       loss_n = length(losses)
+      avg_loss_pct = if loss_n > 0, do: abs(avg(Enum.map(losses, & &1.pnl_pct))), else: 0.0
 
       cond do
         win_n == 0 or loss_n == 0 ->
+          %{}
+
+        # Pathological edge case: avg loss rounds to ~0 → runaway payoff ratio.
+        # Fall back to the hard cap by returning no stats.
+        avg_loss_pct < 1.0e-6 ->
           %{}
 
         true ->
           %{
             win_rate: win_n / n,
             avg_win_pct: avg(Enum.map(wins, & &1.pnl_pct)),
-            avg_loss_pct: abs(avg(Enum.map(losses, & &1.pnl_pct)))
+            avg_loss_pct: avg_loss_pct
           }
       end
     end

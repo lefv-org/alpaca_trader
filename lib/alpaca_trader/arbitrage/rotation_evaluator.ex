@@ -102,7 +102,11 @@ defmodule AlpacaTrader.Arbitrage.RotationEvaluator do
 
   # How far has z reverted toward the exit threshold?
   # 0.0 = no convergence, 1.0 = fully converged to exit zone
-  defp compute_convergence(%PairPosition{entry_z_score: entry_z, current_z_score: current_z, exit_z_threshold: exit_z}) do
+  defp compute_convergence(%PairPosition{
+         entry_z_score: entry_z,
+         current_z_score: current_z,
+         exit_z_threshold: exit_z
+       }) do
     entry_z = entry_z || 0
     current_z = current_z || 0
 

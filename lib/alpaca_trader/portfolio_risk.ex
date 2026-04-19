@@ -23,7 +23,8 @@ defmodule AlpacaTrader.PortfolioRisk do
     open = PairPositionStore.open_positions()
 
     with :ok <- check_max_open(open),
-         :ok <- check_per_sector(open, arb) do
+         :ok <- check_per_sector(open, arb),
+         :ok <- check_cluster(open, arb) do
       :ok
     end
   end
@@ -64,6 +65,54 @@ defmodule AlpacaTrader.PortfolioRisk do
     else
       :ok
     end
+  end
+
+  # Delegate correlation-cluster check to ClusterLimiter when enabled.
+  # Engine arbs carry `:asset`/`:pair_asset`; open positions use
+  # `:asset_a`/`:asset_b`. Normalize the arb before handing off.
+  defp check_cluster(open, arb) do
+    if Application.get_env(:alpaca_trader, :cluster_limiter_enabled, false) do
+      arb_pair = %{
+        asset_a: Map.get(arb, :asset) || Map.get(arb, :asset_a),
+        asset_b: Map.get(arb, :pair_asset) || Map.get(arb, :asset_b)
+      }
+
+      all_symbols =
+        [arb_pair.asset_a, arb_pair.asset_b] ++
+          Enum.flat_map(open, fn p -> [Map.get(p, :asset_a), Map.get(p, :asset_b)] end)
+
+      series = fetch_return_series_for(all_symbols)
+
+      if map_size(series) < 2 do
+        :ok
+      else
+        opts = [
+          series: series,
+          correlation_threshold:
+            Application.get_env(:alpaca_trader, :cluster_corr_threshold, 0.8),
+          max_per_cluster: Application.get_env(:alpaca_trader, :max_pairs_per_cluster, 3)
+        ]
+
+        case AlpacaTrader.Arbitrage.ClusterLimiter.allow_entry?(arb_pair, open, opts) do
+          :ok ->
+            :ok
+
+          {:blocked, {:cluster_full, members}} ->
+            {:blocked, "cluster exposure cap reached (members: #{Enum.join(members, ", ")})"}
+        end
+      end
+    else
+      :ok
+    end
+  end
+
+  defp fetch_return_series_for(symbols) do
+    symbols
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.map(fn s -> {s, AlpacaTrader.BarsStore.recent_returns(s, 200)} end)
+    |> Enum.reject(fn {_, series} -> series == [] or length(series) < 2 end)
+    |> Map.new()
   end
 
   # Symbols with "/" are crypto pairs in Alpaca; everything else equities.

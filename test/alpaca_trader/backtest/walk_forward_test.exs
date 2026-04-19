@@ -69,6 +69,7 @@ defmodule AlpacaTrader.Backtest.WalkForwardTest do
 
     robustness = result.per_pair_robustness
     assert length(robustness) == 2
+
     Enum.each(robustness, fn r ->
       assert is_number(r.win_ratio)
       assert r.win_ratio >= 0.0 and r.win_ratio <= 1.0
@@ -79,5 +80,23 @@ defmodule AlpacaTrader.Backtest.WalkForwardTest do
   test "empty pairs list yields insufficient_data summary" do
     result = WalkForward.run([], %{}, window_bars: 500)
     assert result.summary.insufficient_data == true
+  end
+
+  test "per_pair_robustness includes sharpe and avg_window_return net of slippage config" do
+    bars = %{
+      "A" => Enum.map(1..800, fn i -> 100.0 + :math.sin(i / 10.0) end),
+      "B" => Enum.map(1..800, fn i -> 100.0 + :math.cos(i / 10.0) end)
+    }
+
+    result =
+      AlpacaTrader.Backtest.WalkForward.run([{"A", "B"}], bars,
+        window_bars: 240,
+        step_bars: 120,
+        simulator_config: %{slippage_bps: 15.0}
+      )
+
+    assert [r | _] = result.per_pair_robustness
+    assert Map.has_key?(r, :sharpe_window_annualized)
+    assert is_number(r.sharpe_window_annualized)
   end
 end

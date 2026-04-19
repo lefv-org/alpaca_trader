@@ -47,3 +47,6 @@ arb_results.log
 /priv/runtime/
 
 priv/gain_accumulator.json
+
+# Git worktrees
+/.worktrees/

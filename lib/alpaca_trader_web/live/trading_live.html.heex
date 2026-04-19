@@ -1,10 +1,9 @@
 <div class="min-h-screen bg-gray-950 text-gray-100 font-mono text-sm">
-
   <%!-- Header --%>
   <div class="border-b border-gray-800 px-6 py-3 flex items-center gap-4">
     <span class="text-green-400 font-bold">Alpaca Trader</span>
     <span :if={@loading} class="text-yellow-400 animate-pulse">loading…</span>
-    <span :if={@error} class="text-red-400 truncate max-w-lg">⚠ <%= @error %></span>
+    <span :if={@error} class="text-red-400 truncate max-w-lg">⚠ {@error}</span>
   </div>
 
   <%!-- Tab bar --%>
@@ -21,14 +20,13 @@
           )
         ]}
       >
-        <%= tab %>
+        {tab}
       </button>
     <% end %>
   </div>
 
   <%!-- Tab content --%>
   <div class="p-6 space-y-6">
-
     <%!-- DASHBOARD --%>
     <div :if={@tab == :dashboard}>
       <div class="flex justify-between items-center mb-4">
@@ -46,8 +44,8 @@
         <div class="grid grid-cols-4 gap-4 mb-6">
           <%= for {label, key} <- [{"Equity", "equity"}, {"Cash", "cash"}, {"Buying Power", "buying_power"}, {"P&L Today", "unrealized_pl"}] do %>
             <div class="bg-gray-900 rounded p-3 border border-gray-800">
-              <div class="text-gray-400 text-xs mb-1"><%= label %></div>
-              <div class="text-white font-bold">$<%= @result.account[key] || "—" %></div>
+              <div class="text-gray-400 text-xs mb-1">{label}</div>
+              <div class="text-white font-bold">${@result.account[key] || "—"}</div>
             </div>
           <% end %>
         </div>
@@ -71,14 +69,26 @@
               <tbody>
                 <%= for pos <- (@result.positions || []) do %>
                   <tr class="border-t border-gray-800">
-                    <td class="py-1 text-green-300"><%= pos["symbol"] %></td>
-                    <td class="py-1 text-right"><%= pos["qty"] %></td>
-                    <td class="py-1 text-right">$<%= pos["market_value"] %></td>
-                    <td class={["py-1 text-right", if(String.starts_with?(pos["unrealized_pl"] || "0", "-"), do: "text-red-400", else: "text-green-400")]}>
-                      $<%= pos["unrealized_pl"] %>
+                    <td class="py-1 text-green-300">{pos["symbol"]}</td>
+                    <td class="py-1 text-right">{pos["qty"]}</td>
+                    <td class="py-1 text-right">${pos["market_value"]}</td>
+                    <td class={[
+                      "py-1 text-right",
+                      if(String.starts_with?(pos["unrealized_pl"] || "0", "-"),
+                        do: "text-red-400",
+                        else: "text-green-400"
+                      )
+                    ]}>
+                      ${pos["unrealized_pl"]}
                     </td>
-                    <td class={["py-1 text-right", if(String.starts_with?(pos["unrealized_plpc"] || "0", "-"), do: "text-red-400", else: "text-green-400")]}>
-                      <%= AlpacaTraderWeb.TradingLive.format_pct(pos["unrealized_plpc"]) %>%
+                    <td class={[
+                      "py-1 text-right",
+                      if(String.starts_with?(pos["unrealized_plpc"] || "0", "-"),
+                        do: "text-red-400",
+                        else: "text-green-400"
+                      )
+                    ]}>
+                      {AlpacaTraderWeb.TradingLive.format_pct(pos["unrealized_plpc"])}%
                     </td>
                   </tr>
                 <% end %>
@@ -107,12 +117,17 @@
               <tbody>
                 <%= for order <- (@result.orders || []) do %>
                   <tr class="border-t border-gray-800">
-                    <td class="py-1 text-green-300"><%= order["symbol"] %></td>
-                    <td class={["py-1", if(order["side"] == "buy", do: "text-green-400", else: "text-red-400")]}><%= order["side"] %></td>
-                    <td class="py-1 text-gray-300"><%= order["type"] %></td>
-                    <td class="py-1 text-right"><%= order["qty"] %></td>
-                    <td class="py-1 text-gray-400"><%= order["status"] %></td>
-                    <td class="py-1 text-gray-500"><%= order["submitted_at"] %></td>
+                    <td class="py-1 text-green-300">{order["symbol"]}</td>
+                    <td class={[
+                      "py-1",
+                      if(order["side"] == "buy", do: "text-green-400", else: "text-red-400")
+                    ]}>
+                      {order["side"]}
+                    </td>
+                    <td class="py-1 text-gray-300">{order["type"]}</td>
+                    <td class="py-1 text-right">{order["qty"]}</td>
+                    <td class="py-1 text-gray-400">{order["status"]}</td>
+                    <td class="py-1 text-gray-500">{order["submitted_at"]}</td>
                   </tr>
                 <% end %>
               </tbody>
@@ -121,7 +136,7 @@
         </div>
       <% else %>
         <div class="text-gray-600 text-xs">
-          <%= if @error, do: "Error loading dashboard.", else: "Loading…" %>
+          {if @error, do: "Error loading dashboard.", else: "Loading…"}
         </div>
       <% end %>
     </div>
@@ -135,7 +150,9 @@
         <div class="font-bold mb-2">Get Account</div>
         <form phx-submit="call">
           <input type="hidden" name="action" value="get_account" />
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -144,7 +161,9 @@
         <div class="font-bold mb-2">Get Account Config</div>
         <form phx-submit="call">
           <input type="hidden" name="action" value="get_account_config" />
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -157,17 +176,22 @@
             <label class="text-gray-400 w-40 text-xs">dtbp_check</label>
             <select name="dtbp_check" class="bg-gray-800 rounded px-2 py-1 text-xs">
               <option value="">-- unchanged --</option>
-              <option>both</option><option>entry</option><option>exit</option>
+              <option>both</option>
+              <option>entry</option>
+              <option>exit</option>
             </select>
           </div>
           <div class="flex items-center gap-2">
             <label class="text-gray-400 w-40 text-xs">no_shorting</label>
             <select name="no_shorting" class="bg-gray-800 rounded px-2 py-1 text-xs">
               <option value="">-- unchanged --</option>
-              <option>true</option><option>false</option>
+              <option>true</option>
+              <option>false</option>
             </select>
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -178,7 +202,12 @@
           <input type="hidden" name="action" value="get_activities" />
           <div>
             <div class="text-gray-400 text-xs mb-1">activity_type</div>
-            <input type="text" name="activity_type" placeholder="FILL" class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+            <input
+              type="text"
+              name="activity_type"
+              placeholder="FILL"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">date</div>
@@ -186,9 +215,16 @@
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">page_size</div>
-            <input type="number" name="page_size" placeholder="50" class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+            <input
+              type="number"
+              name="page_size"
+              placeholder="50"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -200,16 +236,26 @@
           <div>
             <div class="text-gray-400 text-xs mb-1">period</div>
             <select name="period" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>1D</option><option>1W</option><option>1M</option><option>3M</option><option>1A</option>
+              <option>1D</option>
+              <option>1W</option>
+              <option>1M</option>
+              <option>3M</option>
+              <option>1A</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">timeframe</div>
             <select name="timeframe" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>1Min</option><option>5Min</option><option>15Min</option><option>1H</option><option>1D</option>
+              <option>1Min</option>
+              <option>5Min</option>
+              <option>15Min</option>
+              <option>1H</option>
+              <option>1D</option>
             </select>
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
     </div>
@@ -226,20 +272,30 @@
           <div>
             <div class="text-gray-400 text-xs mb-1">status</div>
             <select name="status" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>open</option><option>closed</option><option>all</option>
+              <option>open</option>
+              <option>closed</option>
+              <option>all</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">limit</div>
-            <input type="number" name="limit" placeholder="50" class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+            <input
+              type="number"
+              name="limit"
+              placeholder="50"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">direction</div>
             <select name="direction" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>desc</option><option>asc</option>
+              <option>desc</option>
+              <option>asc</option>
             </select>
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -250,43 +306,81 @@
           <input type="hidden" name="action" value="create_order" />
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol *</div>
-            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="AAPL"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">qty</div>
-            <input type="text" name="qty" placeholder="1" class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+            <input
+              type="text"
+              name="qty"
+              placeholder="1"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-16"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">notional</div>
-            <input type="text" name="notional" placeholder="100.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="notional"
+              placeholder="100.00"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">side *</div>
             <select name="side" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>buy</option><option>sell</option>
+              <option>buy</option>
+              <option>sell</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">type *</div>
             <select name="type" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>market</option><option>limit</option><option>stop</option><option>stop_limit</option><option>trailing_stop</option>
+              <option>market</option>
+              <option>limit</option>
+              <option>stop</option>
+              <option>stop_limit</option>
+              <option>trailing_stop</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">time_in_force *</div>
             <select name="time_in_force" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option>day</option><option>gtc</option><option>opg</option><option>cls</option><option>ioc</option><option>fok</option>
+              <option>day</option>
+              <option>gtc</option>
+              <option>opg</option>
+              <option>cls</option>
+              <option>ioc</option>
+              <option>fok</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">limit_price</div>
-            <input type="text" name="limit_price" placeholder="150.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="limit_price"
+              placeholder="150.00"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">stop_price</div>
-            <input type="text" name="stop_price" placeholder="145.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="stop_price"
+              placeholder="145.00"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Submit Order</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Submit Order
+          </button>
         </form>
       </div>
 
@@ -297,9 +391,17 @@
           <input type="hidden" name="action" value="get_order" />
           <div>
             <div class="text-gray-400 text-xs mb-1">order_id *</div>
-            <input type="text" name="order_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+            <input
+              type="text"
+              name="order_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-72"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -310,21 +412,44 @@
           <input type="hidden" name="action" value="replace_order" />
           <div>
             <div class="text-gray-400 text-xs mb-1">order_id *</div>
-            <input type="text" name="order_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+            <input
+              type="text"
+              name="order_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-64"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">qty</div>
-            <input type="text" name="qty" placeholder="2" class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+            <input
+              type="text"
+              name="qty"
+              placeholder="2"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-16"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">limit_price</div>
-            <input type="text" name="limit_price" placeholder="155.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="limit_price"
+              placeholder="155.00"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">stop_price</div>
-            <input type="text" name="stop_price" placeholder="150.00" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="stop_price"
+              placeholder="150.00"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -335,9 +460,17 @@
           <input type="hidden" name="action" value="cancel_order" />
           <div>
             <div class="text-gray-400 text-xs mb-1">order_id *</div>
-            <input type="text" name="order_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+            <input
+              type="text"
+              name="order_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-72"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Cancel</button>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">
+            Cancel
+          </button>
         </form>
       </div>
 
@@ -366,7 +499,9 @@
         <div class="font-bold mb-2">List All Positions</div>
         <form phx-submit="call">
           <input type="hidden" name="action" value="list_positions" />
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -377,9 +512,17 @@
           <input type="hidden" name="action" value="get_position" />
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol *</div>
-            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="AAPL"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -390,17 +533,35 @@
           <input type="hidden" name="action" value="close_position" />
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol *</div>
-            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="AAPL"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">qty (optional)</div>
-            <input type="text" name="qty" placeholder="5" class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+            <input
+              type="text"
+              name="qty"
+              placeholder="5"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-16"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">percentage (optional)</div>
-            <input type="text" name="percentage" placeholder="0.5" class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+            <input
+              type="text"
+              name="percentage"
+              placeholder="0.5"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Close</button>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">
+            Close
+          </button>
         </form>
       </div>
 
@@ -410,8 +571,16 @@
         <form phx-submit="call" class="flex gap-4 items-center">
           <input type="hidden" name="action" value="close_all_positions" />
           <div class="flex items-center gap-2">
-            <input type="checkbox" name="cancel_orders" value="true" id="cancel_orders" class="rounded" />
-            <label for="cancel_orders" class="text-gray-400 text-xs">Also cancel open orders</label>
+            <input
+              type="checkbox"
+              name="cancel_orders"
+              value="true"
+              id="cancel_orders"
+              class="rounded"
+            />
+            <label for="cancel_orders" class="text-gray-400 text-xs">
+              Also cancel open orders
+            </label>
           </div>
           <button
             type="submit"
@@ -436,20 +605,31 @@
           <div>
             <div class="text-gray-400 text-xs mb-1">status</div>
             <select name="status" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option value="">all</option><option>active</option><option>inactive</option>
+              <option value="">all</option>
+              <option>active</option>
+              <option>inactive</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">asset_class</div>
             <select name="asset_class" class="bg-gray-800 rounded px-2 py-1 text-xs">
-              <option value="">all</option><option>us_equity</option><option>crypto</option>
+              <option value="">all</option>
+              <option>us_equity</option>
+              <option>crypto</option>
             </select>
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">exchange</div>
-            <input type="text" name="exchange" placeholder="NASDAQ" class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+            <input
+              type="text"
+              name="exchange"
+              placeholder="NASDAQ"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -460,9 +640,17 @@
           <input type="hidden" name="action" value="get_asset" />
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol or asset ID *</div>
-            <input type="text" name="symbol" placeholder="AAPL" required class="bg-gray-800 rounded px-2 py-1 text-xs w-40" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="AAPL"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-40"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
     </div>
@@ -476,7 +664,9 @@
         <div class="font-bold mb-2">List Watchlists</div>
         <form phx-submit="call">
           <input type="hidden" name="action" value="list_watchlists" />
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -487,13 +677,26 @@
           <input type="hidden" name="action" value="create_watchlist" />
           <div>
             <div class="text-gray-400 text-xs mb-1">name *</div>
-            <input type="text" name="name" placeholder="My Watchlist" required class="bg-gray-800 rounded px-2 py-1 text-xs w-40" />
+            <input
+              type="text"
+              name="name"
+              placeholder="My Watchlist"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-40"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">symbols (comma-separated)</div>
-            <input type="text" name="symbols" placeholder="AAPL, MSFT, TSLA" class="bg-gray-800 rounded px-2 py-1 text-xs w-56" />
+            <input
+              type="text"
+              name="symbols"
+              placeholder="AAPL, MSFT, TSLA"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-56"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Create</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Create
+          </button>
         </form>
       </div>
 
@@ -504,9 +707,17 @@
           <input type="hidden" name="action" value="get_watchlist" />
           <div>
             <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
-            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+            <input
+              type="text"
+              name="watchlist_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-72"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -517,17 +728,36 @@
           <input type="hidden" name="action" value="update_watchlist" />
           <div>
             <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
-            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+            <input
+              type="text"
+              name="watchlist_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-64"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">name *</div>
-            <input type="text" name="name" placeholder="New Name" required class="bg-gray-800 rounded px-2 py-1 text-xs w-36" />
+            <input
+              type="text"
+              name="name"
+              placeholder="New Name"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-36"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">symbols (comma-separated) *</div>
-            <input type="text" name="symbols" placeholder="AAPL, MSFT" class="bg-gray-800 rounded px-2 py-1 text-xs w-48" />
+            <input
+              type="text"
+              name="symbols"
+              placeholder="AAPL, MSFT"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-48"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Update</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Update
+          </button>
         </form>
       </div>
 
@@ -538,9 +768,17 @@
           <input type="hidden" name="action" value="delete_watchlist" />
           <div>
             <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
-            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-72" />
+            <input
+              type="text"
+              name="watchlist_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-72"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Delete</button>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">
+            Delete
+          </button>
         </form>
       </div>
 
@@ -551,13 +789,27 @@
           <input type="hidden" name="action" value="add_to_watchlist" />
           <div>
             <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
-            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+            <input
+              type="text"
+              name="watchlist_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-64"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol *</div>
-            <input type="text" name="symbol" placeholder="TSLA" required class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="TSLA"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Add</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Add
+          </button>
         </form>
       </div>
 
@@ -568,13 +820,27 @@
           <input type="hidden" name="action" value="remove_from_watchlist" />
           <div>
             <div class="text-gray-400 text-xs mb-1">watchlist_id *</div>
-            <input type="text" name="watchlist_id" placeholder="uuid" required class="bg-gray-800 rounded px-2 py-1 text-xs w-64" />
+            <input
+              type="text"
+              name="watchlist_id"
+              placeholder="uuid"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-64"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol *</div>
-            <input type="text" name="symbol" placeholder="TSLA" required class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="TSLA"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">Remove</button>
+          <button type="submit" class="px-3 py-1 bg-red-700 rounded hover:bg-red-600 text-xs">
+            Remove
+          </button>
         </form>
       </div>
     </div>
@@ -588,7 +854,9 @@
         <div class="font-bold mb-2">Get Clock</div>
         <form phx-submit="call">
           <input type="hidden" name="action" value="get_clock" />
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -605,7 +873,9 @@
             <div class="text-gray-400 text-xs mb-1">end</div>
             <input type="date" name="end" class="bg-gray-800 rounded px-2 py-1 text-xs" />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
 
@@ -618,7 +888,10 @@
             <div class="text-gray-400 text-xs mb-1">ca_types</div>
             <select name="ca_types" class="bg-gray-800 rounded px-2 py-1 text-xs">
               <option value="">all</option>
-              <option>dividend</option><option>merger</option><option>spinoff</option><option>split</option>
+              <option>dividend</option>
+              <option>merger</option>
+              <option>spinoff</option>
+              <option>split</option>
             </select>
           </div>
           <div>
@@ -631,9 +904,16 @@
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol</div>
-            <input type="text" name="symbol" placeholder="AAPL" class="bg-gray-800 rounded px-2 py-1 text-xs w-24" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="AAPL"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-24"
+            />
           </div>
-          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">Call</button>
+          <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            Call
+          </button>
         </form>
       </div>
     </div>
@@ -645,15 +925,19 @@
       <div class="bg-gray-900 rounded p-4 border border-gray-800">
         <div class="font-bold mb-2">Execute Trade</div>
         <p class="text-gray-400 text-xs mb-3">
-          Validates market state, then executes a buy/sell order via
-          <code class="text-green-400">execute_trade/2</code>. Returns hold if market closed or asset untradable.
+          Validates market state, then executes a buy/sell order via <code class="text-green-400">execute_trade/2</code>. Returns hold if market closed or asset untradable.
         </p>
         <form phx-submit="call" class="flex flex-wrap gap-2 items-end">
           <input type="hidden" name="action" value="execute_trade" />
           <div>
             <div class="text-gray-400 text-xs mb-1">symbol</div>
-            <input type="text" name="symbol" placeholder="AAPL" required
-              class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+            <input
+              type="text"
+              name="symbol"
+              placeholder="AAPL"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">side</div>
@@ -664,8 +948,13 @@
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">qty</div>
-            <input type="text" name="qty" placeholder="1" required
-              class="bg-gray-800 rounded px-2 py-1 text-xs w-16" />
+            <input
+              type="text"
+              name="qty"
+              placeholder="1"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-16"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">type</div>
@@ -678,13 +967,21 @@
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">limit $</div>
-            <input type="text" name="limit_price" placeholder="—"
-              class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+            <input
+              type="text"
+              name="limit_price"
+              placeholder="—"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20"
+            />
           </div>
           <div>
             <div class="text-gray-400 text-xs mb-1">stop $</div>
-            <input type="text" name="stop_price" placeholder="—"
-              class="bg-gray-800 rounded px-2 py-1 text-xs w-20" />
+            <input
+              type="text"
+              name="stop_price"
+              placeholder="—"
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-20"
+            />
           </div>
           <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
             Execute
@@ -703,8 +1000,13 @@
           <input type="hidden" name="action" value="is_in_arbitrage_position" />
           <div>
             <div class="text-gray-400 text-xs mb-1">asset</div>
-            <input type="text" name="asset" placeholder="BTC" required
-              class="bg-gray-800 rounded px-2 py-1 text-xs w-28" />
+            <input
+              type="text"
+              name="asset"
+              placeholder="BTC"
+              required
+              class="bg-gray-800 rounded px-2 py-1 text-xs w-28"
+            />
           </div>
           <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
             Check
@@ -716,22 +1018,26 @@
       <div class="bg-gray-900 rounded p-4 border border-gray-800">
         <div class="font-bold mb-2">Arbitrage Pipeline</div>
         <p class="text-gray-400 text-xs mb-3">
-          Scans every asset in the AssetStore via
-          <code class="text-green-400">is_in_arbitrage_position/2</code>.
-          "Scan" is a dry run. "Scan & Execute" will auto-trade any hits via
-          <code class="text-green-400">execute_trade/2</code>.
+          Scans every asset in the AssetStore via <code class="text-green-400">is_in_arbitrage_position/2</code>.
+          "Scan" is a dry run. "Scan & Execute" will auto-trade any hits via <code class="text-green-400">execute_trade/2</code>.
           The cron job runs Scan & Execute every minute.
         </p>
         <div class="flex gap-2">
           <form phx-submit="call">
             <input type="hidden" name="action" value="scan_arbitrage" />
-            <button type="submit" class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs">
+            <button
+              type="submit"
+              class="px-3 py-1 bg-green-700 rounded hover:bg-green-600 text-xs"
+            >
               Scan (dry run)
             </button>
           </form>
           <form phx-submit="call">
             <input type="hidden" name="action" value="scan_and_execute" />
-            <button type="submit" class="px-3 py-1 bg-yellow-700 rounded hover:bg-yellow-600 text-xs">
+            <button
+              type="submit"
+              class="px-3 py-1 bg-yellow-700 rounded hover:bg-yellow-600 text-xs"
+            >
               Scan & Execute
             </button>
           </form>
@@ -742,28 +1048,34 @@
       <%= if is_map(@result) && Map.has_key?(@result, :input) do %>
         <div class="grid grid-cols-2 gap-4 h-[500px]">
           <div class="flex flex-col min-h-0">
-            <div class="text-gray-500 text-xs uppercase tracking-wide mb-2 shrink-0">MarketContext (input)</div>
+            <div class="text-gray-500 text-xs uppercase tracking-wide mb-2 shrink-0">
+              MarketContext (input)
+            </div>
             <div
               id={"engine-input-#{@result.output.timestamp}"}
               phx-hook="CollapsibleJson"
               data-json={Jason.encode!(@result.input)}
               class="bg-gray-900 border border-gray-700 rounded p-4 text-xs overflow-auto font-mono flex-1 min-h-0"
-            ></div>
+            >
+            </div>
           </div>
           <div class="flex flex-col min-h-0">
-            <div class="text-gray-500 text-xs uppercase tracking-wide mb-2 shrink-0">PurchaseContext (output)</div>
+            <div class="text-gray-500 text-xs uppercase tracking-wide mb-2 shrink-0">
+              PurchaseContext (output)
+            </div>
             <div
               id={"engine-output-#{@result.output.timestamp}"}
               phx-hook="CollapsibleJson"
               data-json={Jason.encode!(@result.output)}
               class="bg-gray-900 border border-green-800 rounded p-4 text-xs overflow-auto font-mono flex-1 min-h-0"
-            ></div>
+            >
+            </div>
           </div>
         </div>
       <% end %>
       <%= if @error do %>
         <div class="bg-red-950 border border-red-800 rounded p-4 text-red-300 text-xs">
-          <%= @error %>
+          {@error}
         </div>
       <% end %>
     </div>
@@ -772,10 +1084,12 @@
     <div :if={@tab not in [:dashboard, :engine] && (@result != nil || @error != nil)} class="mt-6">
       <div class="text-gray-500 text-xs uppercase tracking-wide mb-2">Response</div>
       <div :if={@error} class="bg-red-950 border border-red-800 rounded p-4 text-red-300 text-xs">
-        <%= @error %>
+        {@error}
       </div>
-      <pre :if={@result != nil && @error == nil} class="bg-gray-900 border border-gray-700 rounded p-4 text-green-300 text-xs overflow-auto max-h-96 whitespace-pre-wrap"><%= Jason.encode!(@result, pretty: true) %></pre>
+      <pre
+        :if={@result != nil && @error == nil}
+        class="bg-gray-900 border border-gray-700 rounded p-4 text-green-300 text-xs overflow-auto max-h-96 whitespace-pre-wrap"
+      ><%= Jason.encode!(@result, pretty: true) %></pre>
     </div>
-
   </div>
 </div>

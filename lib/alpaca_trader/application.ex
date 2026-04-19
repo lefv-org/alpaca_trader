@@ -16,6 +16,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.PairPositionStore,
       AlpacaTrader.GainAccumulatorStore,
       AlpacaTrader.TradeLog,
+      AlpacaTrader.ShadowLogger,
       AlpacaTrader.LLM.OpinionGate,
       AlpacaTrader.MinuteBarCache,
       AlpacaTrader.Arbitrage.PairWhitelist,
@@ -55,6 +56,7 @@ defmodule AlpacaTrader.Application do
     Api.register_job(ArbitrageScanJob)
     Api.register_job(BarsSyncJob)
     Api.register_job(AlpacaTrader.Scheduler.Jobs.PairBuildJob)
+    Api.register_job(AlpacaTrader.Scheduler.Jobs.PairRecointegrationJob)
   end
 
   @impl true

@@ -83,7 +83,10 @@ defmodule AlpacaTrader.Backtest.Runner do
   """
   def report(%{per_pair: per_pair, portfolio: portfolio}) do
     Logger.info("[Backtest] ====== PORTFOLIO ======")
-    Logger.info("[Backtest] " <> Report.to_string(%{trades: flatten_trades(per_pair), equity_curve: []}))
+
+    Logger.info(
+      "[Backtest] " <> Report.to_string(%{trades: flatten_trades(per_pair), equity_curve: []})
+    )
 
     Logger.info("[Backtest] portfolio metrics: #{inspect(portfolio)}")
 
@@ -95,7 +98,10 @@ defmodule AlpacaTrader.Backtest.Runner do
     |> Enum.each(fn r ->
       if (r[:trades] || []) != [] do
         summary = Report.summarize(r)
-        Logger.info("[Backtest]   #{r[:pair]}: n=#{summary.n_trades} wr=#{pct(summary.win_rate)} ret=#{pct(summary.total_return_pct)} avg_hold=#{round1(summary.avg_hold_bars)}b")
+
+        Logger.info(
+          "[Backtest]   #{r[:pair]}: n=#{summary.n_trades} wr=#{pct(summary.win_rate)} ret=#{pct(summary.total_return_pct)} avg_hold=#{round1(summary.avg_hold_bars)}b"
+        )
       end
     end)
 

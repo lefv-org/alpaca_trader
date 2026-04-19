@@ -17,7 +17,7 @@ defmodule AlpacaTrader.Backtest.Simulator do
   safety check to confirm the behaviors haven't drifted.
   """
 
-  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion}
+  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion, HalfLifeManager}
 
   @type bar :: %{required(:close) => float(), required(:timestamp) => DateTime.t()}
   @type config :: %{
@@ -129,12 +129,16 @@ defmodule AlpacaTrader.Backtest.Simulator do
 
   defp maybe_enter(state, i, analysis, window_a, window_b, config, _label) do
     z = analysis.z_score
+    spread = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
 
     cond do
       abs(z) < config.entry_z ->
         state
 
-      config.require_cointegration and not cointegrated?(window_a, window_b, analysis, config) ->
+      config.require_cointegration and not cointegrated?(spread, config) ->
+        state
+
+      not regime_allows_entry?(spread, window_a, config) ->
         state
 
       true ->
@@ -152,7 +156,13 @@ defmodule AlpacaTrader.Backtest.Simulator do
             fill_price(price_b_i, side_b, config)
           }
 
-        notional = compute_notional(state.equity, window_a, window_b, analysis, config)
+        base_notional =
+          compute_notional(state.equity, spread, window_a, window_b, analysis, config)
+
+        notional =
+          kelly_clip(base_notional, state, state.equity * initial_notional(config), config)
+
+        hl = MeanReversion.half_life(spread)
 
         pos = %{
           side_a: side_a,
@@ -162,7 +172,8 @@ defmodule AlpacaTrader.Backtest.Simulator do
           entry_i: i,
           entry_z: z,
           hedge_ratio: analysis.hedge_ratio,
-          notional: notional
+          notional: notional,
+          half_life: hl
         }
 
         %{state | position: pos, bar_index: i}
@@ -173,9 +184,16 @@ defmodule AlpacaTrader.Backtest.Simulator do
     hold_bars = i - pos.entry_i
     z = (analysis && analysis.z_score) || 0.0
 
+    time_stop_mult = Map.get(config, :half_life_time_stop_mult, 2.0)
+
+    effective_time_stop =
+      HalfLifeManager.time_stop_bars(pos[:half_life], time_stop_mult,
+        fallback_bars: config.max_hold_bars
+      )
+
     exit_reason =
       cond do
-        hold_bars >= config.max_hold_bars -> :max_hold
+        hold_bars >= effective_time_stop -> :max_hold
         abs(z) >= config.stop_z -> :stop
         hold_bars >= 2 and crossed_exit_z?(pos.entry_z, z, config.exit_z) -> :target
         true -> nil
@@ -195,7 +213,9 @@ defmodule AlpacaTrader.Backtest.Simulator do
         # Dollar-neutral pair: both legs get the same notional, so each leg
         # contributes its own percentage return directly. Averaging keeps the
         # total comparable to a single-leg trade's % return.
-        pnl_frac = (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) / 2
+        pnl_frac =
+          (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) /
+            2
 
         commission_cost = 4 * (config.commission_bps / 10_000) * pos.notional
         net_pnl = pnl_frac * pos.notional - commission_cost
@@ -244,7 +264,10 @@ defmodule AlpacaTrader.Backtest.Simulator do
         exit_a = fill_price(price_a_i, opposite(pos.side_a), config)
         exit_b = fill_price(price_b_i, opposite(pos.side_b), config)
 
-        pnl_frac = (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) / 2
+        pnl_frac =
+          (leg_pnl(pos.entry_a, exit_a, pos.side_a) + leg_pnl(pos.entry_b, exit_b, pos.side_b)) /
+            2
+
         commission_cost = 4 * (config.commission_bps / 10_000) * pos.notional
         net_pnl = pnl_frac * pos.notional - commission_cost
         pnl_pct = net_pnl / pos.notional
@@ -262,7 +285,12 @@ defmodule AlpacaTrader.Backtest.Simulator do
           notional: pos.notional
         }
 
-        %{state | position: nil, equity: state.equity + net_pnl / initial_notional(config), trades: [trade | state.trades]}
+        %{
+          state
+          | position: nil,
+            equity: state.equity + net_pnl / initial_notional(config),
+            trades: [trade | state.trades]
+        }
     end
   end
 
@@ -279,16 +307,100 @@ defmodule AlpacaTrader.Backtest.Simulator do
 
   defp initial_notional(config), do: config.notional
 
-  defp compute_notional(_equity, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
+  defp compute_notional(equity, spread, window_a, window_b, analysis, config) do
+    base = compute_base_notional(equity, spread, window_a, window_b, analysis, config)
+
+    if Map.get(config, :half_life_size_enabled, false) do
+      hl = MeanReversion.half_life(spread)
+      mult = HalfLifeManager.size_multiplier(hl)
+      base * mult
+    else
+      base
+    end
+  end
+
+  # Kelly-fractional *ceiling* on notional. Never increases size; only clips
+  # down if the Kelly cap is tighter than the vol-scaled amount. Stats are
+  # derived from the in-progress trade history — at least 10 trades required
+  # before a real Kelly cap kicks in; below that we fall back to the
+  # max_cap_pct policy floor (via `KellySizer.size_cap`).
+  defp kelly_clip(notional, state, equity_dollars, config) do
+    if Map.get(config, :kelly_enabled, false) and equity_dollars > 0 do
+      stats = running_stats(state.trades)
+      max_cap_pct = Map.get(config, :kelly_max_cap_pct, 0.05)
+
+      cap =
+        AlpacaTrader.Arbitrage.KellySizer.size_cap(equity_dollars, stats,
+          fraction: Map.get(config, :kelly_fraction, 0.5),
+          max_cap_pct: max_cap_pct
+        )
+
+      # If Kelly's edge estimate produces a non-positive cap (no edge, or raw
+      # Kelly fraction ≤ 0 on the trade history so far), fall back to the
+      # hard policy ceiling rather than the raw notional — otherwise a
+      # "don't trade" Kelly signal would silently re-enable full sizing.
+      effective_cap = if cap > 0, do: cap, else: equity_dollars * max_cap_pct
+      if effective_cap > 0, do: min(notional, effective_cap), else: notional
+    else
+      notional
+    end
+  end
+
+  defp running_stats([]), do: %{}
+
+  defp running_stats(trades) do
+    n = length(trades)
+
+    if n < 10 do
+      %{}
+    else
+      wins = Enum.filter(trades, &(&1.pnl_pct > 0))
+      losses = Enum.filter(trades, &(&1.pnl_pct < 0))
+      win_n = length(wins)
+      loss_n = length(losses)
+      avg_loss_pct = if loss_n > 0, do: abs(avg(Enum.map(losses, & &1.pnl_pct))), else: 0.0
+
+      cond do
+        win_n == 0 or loss_n == 0 ->
+          %{}
+
+        # Pathological edge case: avg loss rounds to ~0 → runaway payoff ratio.
+        # Fall back to the hard cap by returning no stats.
+        avg_loss_pct < 1.0e-6 ->
+          %{}
+
+        true ->
+          %{
+            win_rate: win_n / n,
+            avg_win_pct: avg(Enum.map(wins, & &1.pnl_pct)),
+            avg_loss_pct: avg_loss_pct
+          }
+      end
+    end
+  end
+
+  defp avg([]), do: 0.0
+  defp avg(xs), do: Enum.sum(xs) / length(xs)
+
+  defp compute_base_notional(
+         _equity,
+         _spread,
+         _wa,
+         _wb,
+         _analysis,
+         %{position_sizing: :fixed} = config
+       ) do
     config.notional
   end
 
-  defp compute_notional(equity, window_a, window_b, analysis, config) do
+  defp compute_base_notional(equity, spread, _window_a, _window_b, _analysis, config) do
     # Vol-scaled: target_risk / (spread_std * stop_z)
-    spread = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
     n = length(spread)
     mean = Enum.sum(spread) / n
-    variance = Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean, 2) end) / n
+
+    variance =
+      Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean, 2) end) / max(n - 1, 1)
+
     std = :math.sqrt(variance)
 
     if std > 0 do
@@ -303,15 +415,29 @@ defmodule AlpacaTrader.Backtest.Simulator do
     end
   end
 
-  defp cointegrated?(window_a, window_b, analysis, config) do
-    spread = SpreadCalculator.spread_series(window_a, window_b, analysis.hedge_ratio)
-
+  defp cointegrated?(spread, config) do
     case MeanReversion.classify(spread,
            max_half_life: config.max_half_life,
            max_hurst: config.max_hurst
          ) do
       {:ok, _} -> true
       {:reject, _} -> false
+    end
+  end
+
+  defp regime_allows_entry?(spread, window_a, config) do
+    regime_opts = [
+      enabled: Map.get(config, :regime_filter_enabled, false),
+      max_realized_vol: Map.get(config, :regime_max_realized_vol, 1.0),
+      max_adf_pvalue: Map.get(config, :regime_max_adf_pvalue)
+    ]
+
+    case AlpacaTrader.RegimeDetector.allow_entry?(
+           %{spread: spread, symbol_a_closes: window_a, bar_frequency: :hourly},
+           regime_opts
+         ) do
+      :ok -> true
+      {:blocked, _} -> false
     end
   end
 

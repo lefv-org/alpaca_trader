@@ -242,12 +242,14 @@ defmodule AlpacaTraderWeb.TradingLive do
   # String.to_float/1 crashes on integer-formatted strings; Float.parse/1 handles both.
   def format_pct(val, decimals \\ 2)
   def format_pct(nil, _), do: "0.00"
+
   def format_pct(val, decimals) when is_binary(val) do
     case Float.parse(val) do
       {f, _} -> Float.round(f * 100, decimals) |> :erlang.float_to_binary(decimals: decimals)
       :error -> "0.00"
     end
   end
+
   def format_pct(val, decimals) when is_number(val) do
     Float.round(val * 100 * 1.0, decimals) |> :erlang.float_to_binary(decimals: decimals)
   end

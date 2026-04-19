@@ -85,4 +85,81 @@ defmodule AlpacaTrader.BarsStoreTest do
 
     assert {:ok, [%{"c" => 200.0}]} = BarsStore.get("AAPL")
   end
+
+  describe "recent_returns/2" do
+    test "returns [] for unknown symbol" do
+      assert BarsStore.recent_returns("NOPE", 5) == []
+    end
+
+    test "returns [] when only a single close is available" do
+      BarsStore.put_all_bars(%{
+        "AAPL" => [%{"t" => "2026-04-10T00:00:00Z", "c" => 100.0}]
+      })
+
+      assert BarsStore.recent_returns("AAPL", 5) == []
+    end
+
+    test "computes arithmetic returns from timestamp-sorted closes" do
+      BarsStore.put_all_bars(%{
+        "AAPL" => [
+          %{"t" => "2026-04-10T00:00:00Z", "c" => 110.0},
+          %{"t" => "2026-04-08T00:00:00Z", "c" => 100.0},
+          %{"t" => "2026-04-09T00:00:00Z", "c" => 105.0}
+        ]
+      })
+
+      # sorted closes: [100.0, 105.0, 110.0]
+      # returns: [(105-100)/100, (110-105)/105] = [0.05, ~0.047619]
+      assert [r1, r2] = BarsStore.recent_returns("AAPL", 10)
+      assert_in_delta r1, 0.05, 1.0e-9
+      assert_in_delta r2, 5.0 / 105.0, 1.0e-9
+    end
+
+    test "truncates to the last n returns" do
+      closes =
+        for i <- 0..9 do
+          %{
+            "t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z",
+            "c" => 100.0 + i
+          }
+        end
+
+      BarsStore.put_all_bars(%{"AAPL" => closes})
+
+      returns = BarsStore.recent_returns("AAPL", 3)
+      assert length(returns) == 3
+    end
+  end
+
+  describe "recent_closes/2" do
+    test "returns [] for unknown symbol" do
+      assert BarsStore.recent_closes("NOPE", 5) == []
+    end
+
+    test "returns closes in timestamp-ascending order" do
+      BarsStore.put_all_bars(%{
+        "AAPL" => [
+          %{"t" => "2026-04-10T00:00:00Z", "c" => 110.0},
+          %{"t" => "2026-04-08T00:00:00Z", "c" => 100.0},
+          %{"t" => "2026-04-09T00:00:00Z", "c" => 105.0}
+        ]
+      })
+
+      assert BarsStore.recent_closes("AAPL", 10) == [100.0, 105.0, 110.0]
+    end
+
+    test "truncates to the last n closes" do
+      closes =
+        for i <- 0..9 do
+          %{
+            "t" => "2026-04-#{String.pad_leading("#{i + 1}", 2, "0")}T00:00:00Z",
+            "c" => 100.0 + i
+          }
+        end
+
+      BarsStore.put_all_bars(%{"AAPL" => closes})
+
+      assert BarsStore.recent_closes("AAPL", 3) == [107.0, 108.0, 109.0]
+    end
+  end
 end

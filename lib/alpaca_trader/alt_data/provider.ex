@@ -52,20 +52,30 @@ defmodule AlpacaTrader.AltData.Provider do
               {:ok, signals} when is_list(signals) ->
                 AlpacaTrader.AltData.SignalStore.put(provider_id(), signals)
                 count = length(signals)
+
                 if count > 0 do
                   Logger.info("[AltData:#{provider_id()}] fetched #{count} signals")
                 end
+
                 {signals, %{state | consecutive_errors: 0}}
 
               {:error, reason} ->
                 errors = state.consecutive_errors + 1
-                Logger.warning("[AltData:#{provider_id()}] fetch failed (#{errors}x): #{inspect(reason) |> String.slice(0..120)}")
+
+                Logger.warning(
+                  "[AltData:#{provider_id()}] fetch failed (#{errors}x): #{inspect(reason) |> String.slice(0..120)}"
+                )
+
                 {[], %{state | consecutive_errors: errors}}
             end
           rescue
             e ->
               errors = state.consecutive_errors + 1
-              Logger.warning("[AltData:#{provider_id()}] crash (#{errors}x): #{Exception.message(e)}")
+
+              Logger.warning(
+                "[AltData:#{provider_id()}] crash (#{errors}x): #{Exception.message(e)}"
+              )
+
               {[], %{state | consecutive_errors: errors}}
           end
 
@@ -75,8 +85,9 @@ defmodule AlpacaTrader.AltData.Provider do
       end
 
       defp backoff_interval(0), do: poll_interval_ms()
+
       defp backoff_interval(errors) do
-        backed_off = poll_interval_ms() * :math.pow(2, min(errors, 8)) |> trunc()
+        backed_off = (poll_interval_ms() * :math.pow(2, min(errors, 8))) |> trunc()
         min(backed_off, unquote(@max_backoff_ms))
       end
 

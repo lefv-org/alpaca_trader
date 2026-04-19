@@ -8,7 +8,12 @@ defmodule AlpacaTrader.Arbitrage.PairWhitelistTest do
       System.tmp_dir!() <>
         "/pair_whitelist_test_#{:erlang.unique_integer([:positive])}.json"
 
-    original_path = Application.get_env(:alpaca_trader, :pair_whitelist_path, "priv/runtime/pair_whitelist.json")
+    original_path =
+      Application.get_env(
+        :alpaca_trader,
+        :pair_whitelist_path,
+        "priv/runtime/pair_whitelist.json"
+      )
 
     Application.put_env(:alpaca_trader, :pair_whitelist_path, tmp)
     Application.put_env(:alpaca_trader, :pair_whitelist_enabled, true)

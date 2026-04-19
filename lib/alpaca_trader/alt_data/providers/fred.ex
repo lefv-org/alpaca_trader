@@ -49,6 +49,7 @@ defmodule AlpacaTrader.AltData.Providers.Fred do
       signals =
         Enum.flat_map(results, fn {series_id, result} ->
           {type, label} = @series[series_id]
+
           case result do
             {:ok, value} -> [build_signal(type, label, series_id, value)]
             {:error, _} -> []
@@ -73,6 +74,7 @@ defmodule AlpacaTrader.AltData.Providers.Fred do
   defp warn_missing_key_once do
     if :persistent_term.get({__MODULE__, :warned_missing_key}, false) == false do
       :persistent_term.put({__MODULE__, :warned_missing_key}, true)
+
       Logger.warning(
         "[AltData:fred] FRED_API_KEY not set — provider idle. " <>
           "Get a free key at https://fred.stlouisfed.org/docs/api/api_key.html " <>

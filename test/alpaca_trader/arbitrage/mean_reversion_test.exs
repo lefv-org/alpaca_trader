@@ -76,8 +76,12 @@ defmodule AlpacaTrader.Arbitrage.MeanReversionTest do
       mild = ar1_series(512, 0.8) |> MeanReversion.hurst_exponent()
 
       assert is_number(rw) and is_number(strong) and is_number(mild)
-      assert strong < mild, "stronger reversion should give lower H (got strong=#{strong} mild=#{mild})"
-      assert mild < rw, "random walk should give higher H than mean-reverting (got rw=#{rw} mild=#{mild})"
+
+      assert strong < mild,
+             "stronger reversion should give lower H (got strong=#{strong} mild=#{mild})"
+
+      assert mild < rw,
+             "random walk should give higher H than mean-reverting (got rw=#{rw} mild=#{mild})"
     end
 
     test "returns nil for too-short series" do

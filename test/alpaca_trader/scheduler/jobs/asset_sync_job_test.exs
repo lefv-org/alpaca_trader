@@ -15,6 +15,7 @@ defmodule AlpacaTrader.Scheduler.Jobs.AssetSyncJobTest do
   test "run fetches assets and stores tradeable ones" do
     Req.Test.stub(AlpacaTrader.Alpaca.Client, fn conn ->
       assert conn.request_path == "/v2/assets"
+
       Req.Test.json(conn, [
         %{"symbol" => "AAPL", "tradable" => true, "name" => "Apple"},
         %{"symbol" => "DELISTED", "tradable" => false, "name" => "Gone"},

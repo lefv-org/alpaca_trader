@@ -33,7 +33,9 @@ defmodule AlpacaTrader.MinuteBarCache do
   @doc "Get 1-minute closes for a symbol."
   def get_closes(symbol) do
     case :ets.info(@table) do
-      :undefined -> :error
+      :undefined ->
+        :error
+
       _ ->
         case :ets.lookup(@table, symbol) do
           [{^symbol, closes}] -> {:ok, closes}

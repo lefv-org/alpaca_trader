@@ -63,8 +63,7 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
 
     Logger.info("[PairBuilder] discovered #{length(pairs)} correlated pairs")
 
-    {:reply, {:ok, length(pairs)},
-     %{pairs: pairs, last_built: DateTime.utc_now()}}
+    {:reply, {:ok, length(pairs)}, %{pairs: pairs, last_built: DateTime.utc_now()}}
   end
 
   # ── PAIR BUILDING LOGIC ────────────────────────────────────
@@ -215,7 +214,10 @@ defmodule AlpacaTrader.Arbitrage.PairBuilder do
               }
 
             {:reject, reason} ->
-              Logger.debug("[PairBuilder] rejected #{a}-#{b} (corr=#{Float.round(corr, 2)}): #{inspect(reason)}")
+              Logger.debug(
+                "[PairBuilder] rejected #{a}-#{b} (corr=#{Float.round(corr, 2)}): #{inspect(reason)}"
+              )
+
               nil
           end
         else

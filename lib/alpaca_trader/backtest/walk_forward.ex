@@ -22,6 +22,10 @@ defmodule AlpacaTrader.Backtest.WalkForward do
 
   Reports per-window summary plus robustness metrics (pairs that win in X% of
   windows, win-rate variance across windows, etc).
+
+  Sharpe annualization assumes hourly bars; the factor is derived from
+  `window_bars` (e.g., 720-bar windows → ~8.4 windows/year → annualization ≈
+  sqrt(8.4)).
   """
 
   alias AlpacaTrader.Backtest.{Simulator, Report}
@@ -79,7 +83,7 @@ defmodule AlpacaTrader.Backtest.WalkForward do
 
       %{
         windows: windows,
-        per_pair_robustness: compute_pair_robustness(windows),
+        per_pair_robustness: compute_pair_robustness(windows, window_bars),
         summary: summarize_windows(windows)
       }
     end
@@ -112,7 +116,9 @@ defmodule AlpacaTrader.Backtest.WalkForward do
   end
 
   # For each pair, count how many windows produced positive returns.
-  defp compute_pair_robustness(windows) do
+  defp compute_pair_robustness(windows, window_bars) do
+    annualization = :math.sqrt(max(24 * 252 / window_bars, 1.0))
+
     all_pairs =
       windows
       |> Enum.flat_map(fn w -> Enum.map(w.per_pair, & &1.pair) end)
@@ -129,19 +135,38 @@ defmodule AlpacaTrader.Backtest.WalkForward do
           Enum.reduce(r[:trades] || [], 0.0, fn t, acc -> acc + t.pnl_pct end)
         end)
 
-      total_trades = Enum.reduce(window_results, 0, fn r, acc -> acc + length(r[:trades] || []) end)
+      total_trades =
+        Enum.reduce(window_results, 0, fn r, acc -> acc + length(r[:trades] || []) end)
 
       wins = Enum.count(per_window_returns, &(&1 > 0))
       n = length(per_window_returns)
+      avg_ret = if n > 0, do: Enum.sum(per_window_returns) / n, else: 0.0
+
+      sharpe_window_annualized =
+        cond do
+          n <= 1 ->
+            0.0
+
+          true ->
+            var =
+              Enum.reduce(per_window_returns, 0.0, fn r, acc ->
+                acc + :math.pow(r - avg_ret, 2)
+              end) /
+                (n - 1)
+
+            std = :math.sqrt(var)
+            if std > 0, do: Float.round(avg_ret / std * annualization, 4), else: 0.0
+        end
 
       %{
         pair: pair_name,
         n_windows: n,
         wins: wins,
         win_ratio: if(n > 0, do: wins / n, else: 0.0),
-        avg_window_return: if(n > 0, do: Enum.sum(per_window_returns) / n, else: 0.0),
+        avg_window_return: avg_ret,
         total_trades: total_trades,
-        per_window_returns: per_window_returns
+        per_window_returns: per_window_returns,
+        sharpe_window_annualized: sharpe_window_annualized
       }
     end)
     |> Enum.sort_by(&(-&1.win_ratio))

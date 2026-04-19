@@ -37,6 +37,9 @@ defmodule AlpacaTrader.PairPositionStore do
       :entry_price_a,
       :entry_price_b,
       :entry_time,
+      # OU half-life captured at entry from the spread series (nil if unavailable).
+      # Used downstream by HalfLifeManager to set the time-stop bar budget.
+      :half_life,
 
       # Current state
       :current_z_score,
@@ -75,6 +78,7 @@ defmodule AlpacaTrader.PairPositionStore do
       entry_price_a: attrs[:entry_price_a],
       entry_price_b: attrs[:entry_price_b],
       entry_time: DateTime.utc_now(),
+      half_life: attrs[:half_life],
       current_z_score: attrs.z_score,
       bars_held: 0,
       last_updated: DateTime.utc_now(),
@@ -144,24 +148,26 @@ defmodule AlpacaTrader.PairPositionStore do
         # Open reversed position with flip tracking
         new_consecutive = if was_profitable, do: 0, else: pos.consecutive_losses + 1
 
-        {:ok, new_pos} = open_position(%{
-          asset_a: pos.asset_a,
-          asset_b: pos.asset_b,
-          direction: reverse_direction(pos.direction),
-          tier: pos.tier,
-          z_score: pos.current_z_score,
-          hedge_ratio: pos.entry_hedge_ratio,
-          entry_price_a: pos.entry_price_a,
-          entry_price_b: pos.entry_price_b
-        })
+        {:ok, new_pos} =
+          open_position(%{
+            asset_a: pos.asset_a,
+            asset_b: pos.asset_b,
+            direction: reverse_direction(pos.direction),
+            tier: pos.tier,
+            z_score: pos.current_z_score,
+            hedge_ratio: pos.entry_hedge_ratio,
+            entry_price_a: pos.entry_price_a,
+            entry_price_b: pos.entry_price_b
+          })
 
         # Update flip tracking on new position
         flipped = %PairPosition{
-          new_pos |
-          flip_count: pos.flip_count + 1,
-          consecutive_losses: new_consecutive,
-          last_flip_time: DateTime.utc_now()
+          new_pos
+          | flip_count: pos.flip_count + 1,
+            consecutive_losses: new_consecutive,
+            last_flip_time: DateTime.utc_now()
         }
+
         :ets.insert(@table, {flipped.id, flipped})
         persist_async()
         {:ok, flipped}
@@ -277,7 +283,9 @@ defmodule AlpacaTrader.PairPositionStore do
             open = Enum.count(restored, &(&1.status == :open))
 
             if restored != [] do
-              Logger.info("[PairPositionStore] restored #{length(restored)} positions (#{open} open) from #{path}")
+              Logger.info(
+                "[PairPositionStore] restored #{length(restored)} positions (#{open} open) from #{path}"
+              )
             end
 
           _ ->
@@ -314,6 +322,7 @@ defmodule AlpacaTrader.PairPositionStore do
       entry_price_a: m["entry_price_a"],
       entry_price_b: m["entry_price_b"],
       entry_time: parse_dt(m["entry_time"]),
+      half_life: m["half_life"],
       current_z_score: m["current_z_score"],
       bars_held: m["bars_held"] || 0,
       last_updated: parse_dt(m["last_updated"]),

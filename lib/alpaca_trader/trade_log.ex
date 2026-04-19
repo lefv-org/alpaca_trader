@@ -41,6 +41,65 @@ defmodule AlpacaTrader.TradeLog do
   @doc "Current log path."
   def path, do: GenServer.call(__MODULE__, :path)
 
+  @doc """
+  Aggregate performance statistics across all recorded trades with a non-nil
+  `pnl_pct`. Used by Kelly sizing (and any other module that wants a
+  lifetime edge estimate).
+
+  Requires at least 10 completed trades with both wins and losses to return
+  a meaningful stats map. Below that threshold returns `%{}` so callers
+  can apply a safe fallback (typically the hard max-cap ceiling).
+
+  The shape matches `AlpacaTrader.Backtest.Simulator`'s in-progress
+  running stats: `%{win_rate, avg_win_pct, avg_loss_pct}`.
+  """
+  def performance_stats do
+    entries =
+      try do
+        read_all()
+      catch
+        :exit, _ -> []
+      end
+
+    pnl_pcts =
+      entries
+      |> Enum.map(&Map.get(&1, "pnl_pct"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&is_number/1)
+
+    n = length(pnl_pcts)
+
+    if n < 10 do
+      %{}
+    else
+      # Partition explicitly: wins are strictly > 0, losses strictly < 0.
+      # Break-even trades (pnl_pct == 0) are excluded from both buckets so
+      # they don't drag avg_loss_pct toward zero and inflate payoff ratio.
+      wins = Enum.filter(pnl_pcts, &(&1 > 0))
+      losses = Enum.filter(pnl_pcts, &(&1 < 0))
+
+      avg_loss_pct =
+        if losses == [], do: 0.0, else: abs(Enum.sum(losses) / length(losses))
+
+      cond do
+        wins == [] or losses == [] ->
+          %{}
+
+        # Pathological edge case: avg loss rounds to ~0 → runaway payoff ratio.
+        # Fall back to the hard cap by returning no stats.
+        avg_loss_pct < 1.0e-6 ->
+          %{}
+
+        true ->
+          %{
+            win_rate: length(wins) / n,
+            avg_win_pct: Enum.sum(wins) / length(wins),
+            avg_loss_pct: avg_loss_pct
+          }
+      end
+    end
+  end
+
   # ── GenServer callbacks ────────────────────────────────────
 
   @impl true
@@ -78,8 +137,11 @@ defmodule AlpacaTrader.TradeLog do
           end)
           |> Enum.reject(&is_nil/1)
 
-        {:error, :enoent} -> []
-        {:error, _} -> []
+        {:error, :enoent} ->
+          []
+
+        {:error, _} ->
+          []
       end
 
     {:reply, entries, state}

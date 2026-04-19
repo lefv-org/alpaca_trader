@@ -46,7 +46,11 @@ defmodule AlpacaTrader.AltData.Providers.OpenSky do
 
           {:error, reason} ->
             errors = state.consecutive_errors + 1
-            Logger.warning("[AltData:opensky] fetch failed (#{errors}x): #{inspect(reason) |> String.slice(0..80)}")
+
+            Logger.warning(
+              "[AltData:opensky] fetch failed (#{errors}x): #{inspect(reason) |> String.slice(0..80)}"
+            )
+
             %{state | consecutive_errors: errors}
         end
       rescue
@@ -66,8 +70,9 @@ defmodule AlpacaTrader.AltData.Providers.OpenSky do
   end
 
   defp backoff_interval(0), do: poll_interval_ms()
+
   defp backoff_interval(errors) do
-    backed_off = poll_interval_ms() * :math.pow(2, min(errors, 8)) |> trunc()
+    backed_off = (poll_interval_ms() * :math.pow(2, min(errors, 8))) |> trunc()
     min(backed_off, @max_backoff_ms)
   end
 
@@ -102,30 +107,34 @@ defmodule AlpacaTrader.AltData.Providers.OpenSky do
 
     cond do
       z < -2.0 ->
-        [%Signal{
-          provider: :opensky,
-          signal_type: :cargo_volume,
-          direction: :bearish,
-          strength: min(abs(z) / 4.0, 1.0),
-          affected_symbols: ["DAL", "UAL", "AAL", "FDX", "UPS", "IYT"],
-          reason: "Flight count #{count} is #{Float.round(z, 1)}σ below mean #{trunc(mean)}",
-          fetched_at: DateTime.utc_now(),
-          expires_at: DateTime.add(DateTime.utc_now(), 35, :minute),
-          raw: %{count: count, mean: mean, z_score: z}
-        }]
+        [
+          %Signal{
+            provider: :opensky,
+            signal_type: :cargo_volume,
+            direction: :bearish,
+            strength: min(abs(z) / 4.0, 1.0),
+            affected_symbols: ["DAL", "UAL", "AAL", "FDX", "UPS", "IYT"],
+            reason: "Flight count #{count} is #{Float.round(z, 1)}σ below mean #{trunc(mean)}",
+            fetched_at: DateTime.utc_now(),
+            expires_at: DateTime.add(DateTime.utc_now(), 35, :minute),
+            raw: %{count: count, mean: mean, z_score: z}
+          }
+        ]
 
       z > 2.0 ->
-        [%Signal{
-          provider: :opensky,
-          signal_type: :cargo_volume,
-          direction: :bullish,
-          strength: min(z / 4.0, 1.0),
-          affected_symbols: ["DAL", "UAL", "AAL", "FDX", "UPS", "IYT"],
-          reason: "Flight count #{count} is +#{Float.round(z, 1)}σ above mean #{trunc(mean)}",
-          fetched_at: DateTime.utc_now(),
-          expires_at: DateTime.add(DateTime.utc_now(), 35, :minute),
-          raw: %{count: count, mean: mean, z_score: z}
-        }]
+        [
+          %Signal{
+            provider: :opensky,
+            signal_type: :cargo_volume,
+            direction: :bullish,
+            strength: min(z / 4.0, 1.0),
+            affected_symbols: ["DAL", "UAL", "AAL", "FDX", "UPS", "IYT"],
+            reason: "Flight count #{count} is +#{Float.round(z, 1)}σ above mean #{trunc(mean)}",
+            fetched_at: DateTime.utc_now(),
+            expires_at: DateTime.add(DateTime.utc_now(), 35, :minute),
+            raw: %{count: count, mean: mean, z_score: z}
+          }
+        ]
 
       true ->
         []

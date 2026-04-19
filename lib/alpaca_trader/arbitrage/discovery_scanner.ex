@@ -64,8 +64,12 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
 
     if candidates == [] do
       # Full rotation complete — reset
-      Logger.info("[Discovery] full rotation complete (#{MapSet.size(state.scanned)} assets scanned), resetting")
-      {:reply, {[], MapSet.size(state.scanned)}, %{state | scanned: MapSet.new(), rotation: state.rotation + 1}}
+      Logger.info(
+        "[Discovery] full rotation complete (#{MapSet.size(state.scanned)} assets scanned), resetting"
+      )
+
+      {:reply, {[], MapSet.size(state.scanned)},
+       %{state | scanned: MapSet.new(), rotation: state.rotation + 1}}
     else
       symbols = Enum.map(candidates, & &1["symbol"])
 
@@ -79,7 +83,9 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
       new_scanned = Enum.reduce(symbols, state.scanned, &MapSet.put(&2, &1))
 
       if signals != [] do
-        Logger.info("[Discovery] found #{length(signals)} opportunities in batch: #{Enum.join(symbols, ", ")}")
+        Logger.info(
+          "[Discovery] found #{length(signals)} opportunities in batch: #{Enum.join(symbols, ", ")}"
+        )
       end
 
       {:reply, {signals, MapSet.size(new_scanned)}, %{state | scanned: new_scanned}}
@@ -107,7 +113,9 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
       case Client.get_stock_bars(equities) do
         {:ok, %{"bars" => data}} when is_map(data) ->
           Enum.each(data, fn {sym, bars} -> :ets.insert(:bars_store, {sym, bars}) end)
-        _ -> :ok
+
+        _ ->
+          :ok
       end
     end
 
@@ -116,7 +124,9 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
       case Client.get_crypto_bars(crypto) do
         {:ok, %{"bars" => data}} when is_map(data) ->
           Enum.each(data, fn {sym, bars} -> :ets.insert(:bars_store, {sym, bars}) end)
-        _ -> :ok
+
+        _ ->
+          :ok
       end
     end
   end
@@ -144,14 +154,16 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
           %{z_score: z, hedge_ratio: ratio} when abs(z) > @z_threshold ->
             direction = if z > 0, do: :long_b_short_a, else: :long_a_short_b
 
-            [%{
-              asset_a: sym_a,
-              asset_b: sym_b,
-              z_score: z,
-              hedge_ratio: ratio,
-              direction: direction,
-              source: :discovery
-            }]
+            [
+              %{
+                asset_a: sym_a,
+                asset_b: sym_b,
+                z_score: z,
+                hedge_ratio: ratio,
+                direction: direction,
+                source: :discovery
+              }
+            ]
 
           _ ->
             []

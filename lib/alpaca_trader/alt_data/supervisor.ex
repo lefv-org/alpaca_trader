@@ -25,9 +25,11 @@ defmodule AlpacaTrader.AltData.Supervisor do
 
     [
       {Providers.Fred, Application.get_env(:alpaca_trader, :alt_data_fred_enabled, true)},
-      {Providers.OpenMeteo, Application.get_env(:alpaca_trader, :alt_data_open_meteo_enabled, true)},
+      {Providers.OpenMeteo,
+       Application.get_env(:alpaca_trader, :alt_data_open_meteo_enabled, true)},
       {Providers.OpenSky, Application.get_env(:alpaca_trader, :alt_data_opensky_enabled, true)},
-      {Providers.NasaFirms, Application.get_env(:alpaca_trader, :alt_data_nasa_firms_enabled, false)},
+      {Providers.NasaFirms,
+       Application.get_env(:alpaca_trader, :alt_data_nasa_firms_enabled, false)},
       {Providers.Nws, Application.get_env(:alpaca_trader, :alt_data_nws_enabled, true)},
       {Providers.Finnhub, Application.get_env(:alpaca_trader, :alt_data_finnhub_enabled, false)}
     ]

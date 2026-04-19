@@ -5,14 +5,32 @@ defmodule AlpacaTrader.Engine do
 
   require Logger
 
-  alias AlpacaTrader.Arbitrage.{BellmanFord, SubstituteDetector, ComplementDetector, AssetRelationships, RotationEvaluator}
-  alias AlpacaTrader.Arbitrage.SpreadCalculator
+  alias AlpacaTrader.Arbitrage.{
+    BellmanFord,
+    SubstituteDetector,
+    ComplementDetector,
+    AssetRelationships,
+    RotationEvaluator
+  }
+
+  alias AlpacaTrader.Arbitrage.{SpreadCalculator, MeanReversion, HalfLifeManager}
   alias AlpacaTrader.{BarsStore, PairPositionStore}
   alias AlpacaTrader.Engine.OrderExecutor
 
   defmodule MarketContext do
     @derive Jason.Encoder
-    defstruct [:symbol, :account, :position, :clock, :asset, :bars, :positions, :orders, :quotes, :prices]
+    defstruct [
+      :symbol,
+      :account,
+      :position,
+      :clock,
+      :asset,
+      :bars,
+      :positions,
+      :orders,
+      :quotes,
+      :prices
+    ]
   end
 
   defmodule PurchaseContext do
@@ -23,9 +41,19 @@ defmodule AlpacaTrader.Engine do
   defmodule ArbitragePosition do
     @derive Jason.Encoder
     defstruct [
-      :result, :asset, :reason, :related_positions, :spread, :timestamp,
-      :tier, :pair_asset, :direction, :hedge_ratio, :z_score,
-      :action, :replaces
+      :result,
+      :asset,
+      :reason,
+      :related_positions,
+      :spread,
+      :timestamp,
+      :tier,
+      :pair_asset,
+      :direction,
+      :hedge_ratio,
+      :z_score,
+      :action,
+      :replaces
     ]
   end
 
@@ -42,12 +70,14 @@ defmodule AlpacaTrader.Engine do
   # parse_float is used by a handful of engine-local helpers (order_notional,
   # etc). Keeping a private copy avoids a circular alias loop with OrderExecutor.
   defp parse_float(nil), do: nil
+
   defp parse_float(s) when is_binary(s) do
     case Float.parse(s) do
       {f, _} -> f
       :error -> nil
     end
   end
+
   defp parse_float(n) when is_number(n), do: n * 1.0
 
   # ── is_in_arbitrage_position (position-aware) ─────────────
@@ -98,17 +128,22 @@ defmodule AlpacaTrader.Engine do
     trend = if spread_series, do: SpreadCalculator.trend_strength(spread_series), else: 0.0
 
     # Did z-score cross to opposite side? (flip candidate)
-    z_crossed = current != nil and pos.entry_z_score != nil and
-      ((pos.entry_z_score > 0 and current.z_score < -1.5) or
-       (pos.entry_z_score < 0 and current.z_score > 1.5))
+    z_crossed =
+      current != nil and pos.entry_z_score != nil and
+        ((pos.entry_z_score > 0 and current.z_score < -1.5) or
+           (pos.entry_z_score < 0 and current.z_score > 1.5))
 
     can_flip = z_crossed and trend > 25 and PairPositionStore.can_flip?(pos.id)
 
     cond do
       # 1. PROFIT TARGET: spread moved in our favor → SELL
       pnl != nil and pnl.profit_pct >= profit_target ->
-        exit_signal(asset, related, pos,
-          "TAKE PROFIT: #{Float.round(pnl.profit_pct, 2)}% gain ($#{Float.round(pnl.dollar_pnl, 2)}) [target: #{profit_target}%]")
+        exit_signal(
+          asset,
+          related,
+          pos,
+          "TAKE PROFIT: #{Float.round(pnl.profit_pct, 2)}% gain ($#{Float.round(pnl.dollar_pnl, 2)}) [target: #{profit_target}%]"
+        )
 
       # 2. FLIP: z-score crossed to opposite side + trending → reverse position
       can_flip ->
@@ -116,8 +151,12 @@ defmodule AlpacaTrader.Engine do
 
       # 3. STOP LOSS: z-score diverged further
       current != nil and abs(current.z_score) >= pos.stop_z_threshold ->
-        exit_signal(asset, related, pos,
-          "STOP LOSS: z=#{current.z_score} exceeded #{pos.stop_z_threshold}")
+        exit_signal(
+          asset,
+          related,
+          pos,
+          "STOP LOSS: z=#{current.z_score} exceeded #{pos.stop_z_threshold}"
+        )
 
       # 4. CUT LOSS: P&L below tier-specific threshold
       pnl != nil and pnl.profit_pct <= cut_loss ->
@@ -125,24 +164,45 @@ defmodule AlpacaTrader.Engine do
         if trend > 25 and PairPositionStore.can_flip?(pos.id) do
           flip_signal(asset, related, pos, z, trend, pnl)
         else
-          exit_signal(asset, related, pos,
-            "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)}) [limit: #{cut_loss}%]")
+          exit_signal(
+            asset,
+            related,
+            pos,
+            "CUT LOSS: #{Float.round(pnl.profit_pct, 2)}% loss ($#{Float.round(pnl.dollar_pnl, 2)}) [limit: #{cut_loss}%]"
+          )
         end
 
-      # 5. TIME EXIT: held too long
-      pos.bars_held >= pos.max_hold_bars ->
-        exit_signal(asset, related, pos,
-          "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}")
+      # 5. TIME EXIT: half-life-aware time-stop (falls back to max_hold_bars when
+      # half-life is unavailable). Keeps dead-money trades from decaying further.
+      HalfLifeManager.should_time_stop?(pos.bars_held,
+        half_life: pos.half_life,
+        multiplier: Application.get_env(:alpaca_trader, :half_life_time_stop_mult, 2.0),
+        fallback_bars: pos.max_hold_bars
+      ) ->
+        exit_signal(
+          asset,
+          related,
+          pos,
+          "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}"
+        )
 
       # 6. COINTEGRATION BROKEN: can't compute z-score anymore
       current == nil ->
-        exit_signal(asset, related, pos,
-          "PAIR BROKEN: cannot compute spread, P&L=#{format_pnl(pnl)}")
+        exit_signal(
+          asset,
+          related,
+          pos,
+          "PAIR BROKEN: cannot compute spread, P&L=#{format_pnl(pnl)}"
+        )
 
       # 7. Z-SCORE REVERSION: spread reverted to mean
       abs(current.z_score) <= pos.exit_z_threshold ->
-        exit_signal(asset, related, pos,
-          "Z-REVERSION: z=#{current.z_score}, P&L=#{format_pnl(pnl)}")
+        exit_signal(
+          asset,
+          related,
+          pos,
+          "Z-REVERSION: z=#{current.z_score}, P&L=#{format_pnl(pnl)}"
+        )
 
       # 7. HOLD: still waiting
       true ->
@@ -150,7 +210,8 @@ defmodule AlpacaTrader.Engine do
          %ArbitragePosition{
            result: false,
            asset: asset,
-           reason: "HOLD: z=#{z}, P&L=#{format_pnl(pnl)} (#{pos.bars_held}/#{pos.max_hold_bars} bars)",
+           reason:
+             "HOLD: z=#{z}, P&L=#{format_pnl(pnl)} (#{pos.bars_held}/#{pos.max_hold_bars} bars)",
            related_positions: related,
            action: :hold,
            tier: pos.tier,
@@ -163,12 +224,13 @@ defmodule AlpacaTrader.Engine do
 
   defp compute_pnl(pos, price_a, price_b) do
     if pos.entry_price_a && pos.entry_price_b && price_a && price_b &&
-       pos.entry_price_a > 0 && pos.entry_price_b > 0 do
+         pos.entry_price_a > 0 && pos.entry_price_b > 0 do
       # P&L depends on direction
       {long_entry, long_current, short_entry, short_current} =
         case pos.direction do
           :long_a_short_b ->
             {pos.entry_price_a, price_a, pos.entry_price_b, price_b}
+
           :long_b_short_a ->
             {pos.entry_price_b, price_b, pos.entry_price_a, price_a}
         end
@@ -176,10 +238,9 @@ defmodule AlpacaTrader.Engine do
       long_pnl = (long_current - long_entry) / long_entry * 100
       short_pnl = (short_entry - short_current) / short_entry * 100
       profit_pct = (long_pnl + short_pnl) / 2
-      dollar_pnl = (long_current - long_entry) + (short_entry - short_current)
+      dollar_pnl = long_current - long_entry + (short_entry - short_current)
 
-      %{profit_pct: profit_pct, dollar_pnl: dollar_pnl,
-        long_pnl: long_pnl, short_pnl: short_pnl}
+      %{profit_pct: profit_pct, dollar_pnl: dollar_pnl, long_pnl: long_pnl, short_pnl: short_pnl}
     else
       nil
     end
@@ -188,9 +249,15 @@ defmodule AlpacaTrader.Engine do
   # Live price: check snapshot quotes first (real-time), then bars (daily)
   defp get_live_price(%MarketContext{quotes: quotes}, symbol) when is_map(quotes) do
     case quotes do
-      %{^symbol => %{"latestTrade" => %{"p" => price}}} when is_number(price) -> price
-      %{^symbol => %{"latestQuote" => %{"ap" => ask, "bp" => bid}}} when is_number(ask) and is_number(bid) -> (ask + bid) / 2
-      _ -> get_bars_price(symbol)
+      %{^symbol => %{"latestTrade" => %{"p" => price}}} when is_number(price) ->
+        price
+
+      %{^symbol => %{"latestQuote" => %{"ap" => ask, "bp" => bid}}}
+      when is_number(ask) and is_number(bid) ->
+        (ask + bid) / 2
+
+      _ ->
+        get_bars_price(symbol)
     end
   end
 
@@ -211,6 +278,7 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp format_pnl(nil), do: "n/a"
+
   defp format_pnl(%{profit_pct: pct, dollar_pnl: dollar}),
     do: "#{Float.round(pct, 2)}% ($#{Float.round(dollar, 2)})"
 
@@ -237,7 +305,8 @@ defmodule AlpacaTrader.Engine do
      %ArbitragePosition{
        result: true,
        asset: asset,
-       reason: "FLIP: z=#{current_z} crossed (trend=#{trend}), P&L=#{format_pnl(pnl)}, flip##{pos.flip_count + 1}",
+       reason:
+         "FLIP: z=#{current_z} crossed (trend=#{trend}), P&L=#{format_pnl(pnl)}, flip##{pos.flip_count + 1}",
        related_positions: related,
        action: :flip,
        tier: pos.tier,
@@ -270,6 +339,7 @@ defmodule AlpacaTrader.Engine do
     with {:ok, closes_a} <- get_best_closes(asset_a),
          {:ok, closes_b} <- get_best_closes(asset_b) do
       len = min(length(closes_a), length(closes_b))
+
       if len >= 20 do
         a = Enum.take(closes_a, -len)
         b = Enum.take(closes_b, -len)
@@ -316,9 +386,12 @@ defmodule AlpacaTrader.Engine do
               :miss ->
                 {:ok,
                  %ArbitragePosition{
-                   result: false, asset: asset, action: :hold,
+                   result: false,
+                   asset: asset,
+                   action: :hold,
                    reason: "no opportunity across all tiers",
-                   related_positions: related, tier: nil,
+                   related_positions: related,
+                   tier: nil,
                    timestamp: DateTime.utc_now()
                  }}
             end
@@ -333,15 +406,30 @@ defmodule AlpacaTrader.Engine do
 
     case RotationEvaluator.evaluate(arb, open) do
       {:rotate, victim} ->
-        Logger.info("[Rotation] 🔄 #{arb.asset} (z=#{arb.z_score}) displaces #{victim.asset_a}↔#{victim.asset_b} (stale)")
-        {:ok, %ArbitragePosition{arb | related_positions: related, action: :rotate, replaces: victim.id}}
+        Logger.info(
+          "[Rotation] 🔄 #{arb.asset} (z=#{arb.z_score}) displaces #{victim.asset_a}↔#{victim.asset_b} (stale)"
+        )
+
+        {:ok,
+         %ArbitragePosition{
+           arb
+           | related_positions: related,
+             action: :rotate,
+             replaces: victim.id
+         }}
 
       :enter_normally ->
         {:ok, %ArbitragePosition{arb | related_positions: related, action: :enter}}
 
       :skip ->
-        {:ok, %{arb | related_positions: related, action: :hold,
-          result: false, reason: "signal weaker than all open positions (rotation skip)"}}
+        {:ok,
+         %{
+           arb
+           | related_positions: related,
+             action: :hold,
+             result: false,
+             reason: "signal weaker than all open positions (rotation skip)"
+         }}
     end
   end
 
@@ -356,15 +444,20 @@ defmodule AlpacaTrader.Engine do
           %{cycle: cycle, profit_pct: profit} ->
             {:hit,
              %ArbitragePosition{
-               result: true, asset: asset, tier: 1, spread: profit,
+               result: true,
+               asset: asset,
+               tier: 1,
+               spread: profit,
                reason: "cycle: #{Enum.join(cycle, " → ")} (#{profit}%)",
                timestamp: DateTime.utc_now()
              }}
 
-          nil -> :miss
+          nil ->
+            :miss
         end
 
-      _ -> :miss
+      _ ->
+        :miss
     end
   end
 
@@ -373,13 +466,20 @@ defmodule AlpacaTrader.Engine do
       {:ok, %{z_score: z, hedge_ratio: ratio, asset_b: pair, direction: dir}} ->
         {:hit,
          %ArbitragePosition{
-           result: true, asset: asset, tier: 2, spread: z,
+           result: true,
+           asset: asset,
+           tier: 2,
+           spread: z,
            reason: "substitute spread z=#{z} (#{asset}↔#{pair})",
-           pair_asset: pair, direction: dir, hedge_ratio: ratio, z_score: z,
+           pair_asset: pair,
+           direction: dir,
+           hedge_ratio: ratio,
+           z_score: z,
            timestamp: DateTime.utc_now()
          }}
 
-      {:ok, nil} -> :miss
+      {:ok, nil} ->
+        :miss
     end
   end
 
@@ -388,13 +488,20 @@ defmodule AlpacaTrader.Engine do
       {:ok, %{z_score: z, hedge_ratio: ratio, asset_b: pair, direction: dir}} ->
         {:hit,
          %ArbitragePosition{
-           result: true, asset: asset, tier: 3, spread: z,
+           result: true,
+           asset: asset,
+           tier: 3,
+           spread: z,
            reason: "complement spread z=#{z} (#{asset}↔#{pair})",
-           pair_asset: pair, direction: dir, hedge_ratio: ratio, z_score: z,
+           pair_asset: pair,
+           direction: dir,
+           hedge_ratio: ratio,
+           z_score: z,
            timestamp: DateTime.utc_now()
          }}
 
-      {:ok, nil} -> :miss
+      {:ok, nil} ->
+        :miss
     end
   end
 
@@ -405,8 +512,12 @@ defmodule AlpacaTrader.Engine do
 
     {:ok,
      %ArbitrageScanResult{
-       scanned: scanned, hits: length(hits), opportunities: hits,
-       executed: 0, trades: [], timestamp: DateTime.utc_now()
+       scanned: scanned,
+       hits: length(hits),
+       opportunities: hits,
+       executed: 0,
+       trades: [],
+       timestamp: DateTime.utc_now()
      }}
   end
 
@@ -435,8 +546,12 @@ defmodule AlpacaTrader.Engine do
 
     {:ok,
      %ArbitrageScanResult{
-       scanned: scanned, hits: length(hits), opportunities: hits,
-       executed: executed, trades: trades ++ reaped, timestamp: DateTime.utc_now()
+       scanned: scanned,
+       hits: length(hits),
+       opportunities: hits,
+       executed: executed,
+       trades: trades ++ reaped,
+       timestamp: DateTime.utc_now()
      }}
   end
 
@@ -445,7 +560,10 @@ defmodule AlpacaTrader.Engine do
   # the same symbol would create a day trade. Cancel them before reaping.
 
   defp cancel_pending_orders(%MarketContext{orders: orders}) when is_list(orders) do
-    pending = Enum.filter(orders, fn o -> o["status"] in ["new", "pending_new", "accepted", "partially_filled"] end)
+    pending =
+      Enum.filter(orders, fn o ->
+        o["status"] in ["new", "pending_new", "accepted", "partially_filled"]
+      end)
 
     if pending != [] do
       Logger.info("[Reaper] cancelling #{length(pending)} pending orders to clear PDT blocks")
@@ -462,7 +580,8 @@ defmodule AlpacaTrader.Engine do
   # Skips positions bought today (would be a day trade) and PDT-rejected symbols.
 
   @pdt_cache_key :reaper_pdt_blocked
-  @pdt_cache_ttl_s 3600  # retry PDT-blocked symbols after 1 hour
+  # retry PDT-blocked symbols after 1 hour
+  @pdt_cache_ttl_s 3600
 
   defp reap_stale_positions(%MarketContext{} = ctx) do
     positions = ctx.positions || []
@@ -491,15 +610,22 @@ defmodule AlpacaTrader.Engine do
         |> Enum.sort_by(fn pos -> parse_float(pos["unrealized_plpc"]) || 0.0 end)
 
       if closeable != [] do
-        Logger.info("[Reaper] 🔓 DEADLOCK BREAK: buying power too low, closing #{length(closeable)} positions to free capital")
+        Logger.info(
+          "[Reaper] 🔓 DEADLOCK BREAK: buying power too low, closing #{length(closeable)} positions to free capital"
+        )
+
         :persistent_term.put(:reaper_deadlock_logged, false)
         close_positions(closeable, "deadlock break")
       else
         # Log once, then stay quiet until the deadlock clears
         unless :persistent_term.get(:reaper_deadlock_logged, false) do
-          Logger.info("[Reaper] 🔒 deadlocked: all positions PDT-blocked or too small, waiting for PDT window to clear")
+          Logger.info(
+            "[Reaper] 🔒 deadlocked: all positions PDT-blocked or too small, waiting for PDT window to clear"
+          )
+
           :persistent_term.put(:reaper_deadlock_logged, true)
         end
+
         []
       end
     else
@@ -527,20 +653,32 @@ defmodule AlpacaTrader.Engine do
             _ -> :ok
           end
 
-          [%PurchaseContext{
-            action: :sold, symbol: symbol,
-            reason: "#{reason_prefix}: P&L=$#{Float.round(unrealized, 2)}",
-            qty: pos["qty"], side: "sell", order: order,
-            timestamp: DateTime.utc_now()
-          }]
+          [
+            %PurchaseContext{
+              action: :sold,
+              symbol: symbol,
+              reason: "#{reason_prefix}: P&L=$#{Float.round(unrealized, 2)}",
+              qty: pos["qty"],
+              side: "sell",
+              order: order,
+              timestamp: DateTime.utc_now()
+            }
+          ]
 
-        {:error, %{"code" => 40310100} = _err} ->
+        {:error, %{"code" => 40_310_100} = _err} ->
           mark_pdt_blocked(symbol)
-          Logger.debug("[Reaper] 🔒 #{symbol} PDT-blocked, skipping for #{div(@pdt_cache_ttl_s, 60)} min")
+
+          Logger.debug(
+            "[Reaper] 🔒 #{symbol} PDT-blocked, skipping for #{div(@pdt_cache_ttl_s, 60)} min"
+          )
+
           []
 
         {:error, err} ->
-          Logger.warning("[Reaper] ⚠️ failed to close #{symbol}: #{inspect(err) |> String.slice(0..80)}")
+          Logger.warning(
+            "[Reaper] ⚠️ failed to close #{symbol}: #{inspect(err) |> String.slice(0..80)}"
+          )
+
           []
       end
     end)
@@ -548,8 +686,11 @@ defmodule AlpacaTrader.Engine do
 
   defp get_pdt_blocked do
     now = System.system_time(:second)
+
     case :persistent_term.get(@pdt_cache_key, nil) do
-      nil -> %{}
+      nil ->
+        %{}
+
       cache ->
         cache
         |> Enum.reject(fn {_sym, ts} -> now - ts > @pdt_cache_ttl_s end)
@@ -565,8 +706,10 @@ defmodule AlpacaTrader.Engine do
   # A position bought today would be a day trade if sold — skip it for non-crypto.
   defp bought_today?(pos) do
     asset_class = pos["asset_class"] || "us_equity"
+
     if asset_class == "crypto" do
-      false  # crypto is exempt from PDT
+      # crypto is exempt from PDT
+      false
     else
       # Alpaca positions have qty_available and change_today;
       # if change_today != "0" the position was modified today
@@ -622,23 +765,28 @@ defmodule AlpacaTrader.Engine do
     cond do
       not can_afford_entry?(ctx) ->
         Logger.debug("[Pre-flight] ⏸ skipping #{arb.asset}: insufficient buying power for entry")
+        shadow_record_blocked(arb, [:buying_power])
         []
 
       not gain_allows_entry?(ctx) ->
+        shadow_record_blocked(arb, [:gain_accumulator])
         []
 
       alt_data_suppressed?(arb.asset) ->
         Logger.info("[AltData] suppressing entry on #{arb.asset}: bearish/risk-off signal active")
+        shadow_record_blocked(arb, [:alt_data])
         []
 
       true ->
         case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
           {:ok, %{decision: "suppress"}} ->
             Logger.info("[LLM Gate] SUPPRESSED #{arb.asset}: #{arb.reason}")
+            shadow_record_blocked(arb, [:llm_suppress])
             []
 
           {:ok, %{conviction: c}} when c < 0.3 ->
             Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for #{arb.asset}")
+            shadow_record_blocked(arb, [:llm_low_conviction])
             []
 
           {:ok, %{conviction: c, reasoning: r}} ->
@@ -655,7 +803,9 @@ defmodule AlpacaTrader.Engine do
     threshold = Application.get_env(:alpaca_trader, :alt_data_suppress_threshold, 0.6)
 
     AlpacaTrader.AltData.SignalStore.active_for(asset)
-    |> Enum.any?(fn sig -> sig.direction in [:bearish, :risk_off] and sig.strength > threshold end)
+    |> Enum.any?(fn sig ->
+      sig.direction in [:bearish, :risk_off] and sig.strength > threshold
+    end)
   end
 
   defp gate_and_flip(ctx, arb) do
@@ -673,7 +823,10 @@ defmodule AlpacaTrader.Engine do
         execute_exit(ctx, arb)
 
       {:ok, %{conviction: c, reasoning: r}} ->
-        Logger.info("[LLM Gate] CONFIRMED flip #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+        Logger.info(
+          "[LLM Gate] CONFIRMED flip #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}"
+        )
+
         if gain_ok?, do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)
 
       _ ->
@@ -699,11 +852,17 @@ defmodule AlpacaTrader.Engine do
             []
 
           {:ok, %{conviction: c}} when c < 0.3 ->
-            Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for rotation #{arb.asset}")
+            Logger.info(
+              "[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for rotation #{arb.asset}"
+            )
+
             []
 
           {:ok, %{conviction: c, reasoning: r}} ->
-            Logger.info("[LLM Gate] CONFIRMED rotation #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+            Logger.info(
+              "[LLM Gate] CONFIRMED rotation #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}"
+            )
+
             execute_rotate(ctx, arb)
 
           _ ->
@@ -714,24 +873,32 @@ defmodule AlpacaTrader.Engine do
 
   defp execute_rotate(ctx, arb) do
     # Step 1: Close the victim position (free the capital)
-    victim = case :ets.lookup(:pair_position_store, arb.replaces) do
-      [{_id, pos}] -> pos
-      [] -> nil
-    end
+    victim =
+      case :ets.lookup(:pair_position_store, arb.replaces) do
+        [{_id, pos}] -> pos
+        [] -> nil
+      end
 
-    exit_trades = if victim do
-      victim_arb = %ArbitragePosition{
-        result: true, asset: victim.asset_a, pair_asset: victim.asset_b,
-        direction: victim.direction, tier: victim.tier, action: :exit,
-        reason: "ROTATED OUT: replaced by #{arb.asset}↔#{arb.pair_asset} (z=#{arb.z_score})",
-        z_score: victim.current_z_score, hedge_ratio: victim.entry_hedge_ratio,
-        timestamp: DateTime.utc_now()
-      }
-      Logger.info("[Rotation] 🔄 closing #{victim.asset_a}↔#{victim.asset_b} to free capital")
-      execute_exit(ctx, victim_arb)
-    else
-      []
-    end
+    exit_trades =
+      if victim do
+        victim_arb = %ArbitragePosition{
+          result: true,
+          asset: victim.asset_a,
+          pair_asset: victim.asset_b,
+          direction: victim.direction,
+          tier: victim.tier,
+          action: :exit,
+          reason: "ROTATED OUT: replaced by #{arb.asset}↔#{arb.pair_asset} (z=#{arb.z_score})",
+          z_score: victim.current_z_score,
+          hedge_ratio: victim.entry_hedge_ratio,
+          timestamp: DateTime.utc_now()
+        }
+
+        Logger.info("[Rotation] 🔄 closing #{victim.asset_a}↔#{victim.asset_b} to free capital")
+        execute_exit(ctx, victim_arb)
+      else
+        []
+      end
 
     # Step 2: Enter the new signal (same as normal entry)
     Logger.info("[Rotation] 🔄 entering #{arb.asset}↔#{arb.pair_asset} z=#{arb.z_score}")
@@ -750,17 +917,63 @@ defmodule AlpacaTrader.Engine do
       # windows. When the whitelist is disabled or empty this is a no-op.
       not AlpacaTrader.Arbitrage.PairWhitelist.allowed?(arb.asset, arb.pair_asset) ->
         Logger.debug("[Trade] ⏸ HOLD pair #{pair_label} (not whitelisted)")
+        shadow_record_blocked(arb, [:whitelist])
         []
 
       true ->
-        case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
+        case regime_gate(arb) do
           {:blocked, reason} ->
-            Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+            Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (regime): #{inspect(reason)}")
+            shadow_record_blocked(arb, [:regime])
             []
 
           :ok ->
-            execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+            case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
+              {:blocked, reason} ->
+                Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+                shadow_record_blocked(arb, [:portfolio])
+                []
+
+              :ok ->
+                trades = execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+                shadow_record_entry_result(arb, trades)
+                trades
+            end
         end
+    end
+  end
+
+  # ── REGIME GATE ────────────────────────────────────────────
+  # Block entries when realized vol is too high or when the spread has
+  # drifted out of stationarity since the last whitelist build. Feature
+  # flagged — defaults to :ok when disabled.
+
+  defp regime_gate(arb) do
+    with {:ok, closes_a} <- get_best_closes(arb.asset),
+         {:ok, closes_b} <- get_best_closes(arb.pair_asset) do
+      len = min(length(closes_a), length(closes_b))
+
+      if len >= 20 do
+        a = Enum.take(closes_a, -len)
+        b = Enum.take(closes_b, -len)
+        ratio = arb.hedge_ratio || SpreadCalculator.hedge_ratio(a, b)
+        spread = SpreadCalculator.spread_series(a, b, ratio)
+
+        regime_opts = [
+          enabled: Application.get_env(:alpaca_trader, :regime_filter_enabled, false),
+          max_realized_vol: Application.get_env(:alpaca_trader, :regime_max_realized_vol, 1.0),
+          max_adf_pvalue: Application.get_env(:alpaca_trader, :regime_max_adf_pvalue)
+        ]
+
+        AlpacaTrader.RegimeDetector.allow_entry?(
+          %{spread: spread, symbol_a_closes: a, bar_frequency: :hourly},
+          regime_opts
+        )
+      else
+        :ok
+      end
+    else
+      _ -> :ok
     end
   end
 
@@ -780,6 +993,9 @@ defmodule AlpacaTrader.Engine do
 
     # Track the position if any leg executed
     if arb.tier in [2, 3] and Enum.any?(trades, &(&1.action in [:bought, :sold])) do
+      spread_series = recompute_spread_series(arb.asset, arb.pair_asset)
+      half_life = spread_series && MeanReversion.half_life(spread_series)
+
       PairPositionStore.open_position(%{
         asset_a: arb.asset,
         asset_b: arb.pair_asset,
@@ -788,7 +1004,8 @@ defmodule AlpacaTrader.Engine do
         z_score: arb.z_score,
         hedge_ratio: arb.hedge_ratio,
         entry_price_a: get_live_price(ctx, arb.asset),
-        entry_price_b: get_live_price(ctx, arb.pair_asset)
+        entry_price_b: get_live_price(ctx, arb.pair_asset),
+        half_life: half_life
       })
     end
 
@@ -801,6 +1018,14 @@ defmodule AlpacaTrader.Engine do
     # Close the position: reverse the original direction
     exit_params = build_exit_params(ctx, arb)
     pair_label = "#{arb.asset}↔#{arb.pair_asset}"
+
+    shadow_record(%{
+      timestamp: DateTime.utc_now(),
+      pair: shadow_pair(arb),
+      event: :exit_signal,
+      status: :would_exit,
+      z_score: shadow_z(arb)
+    })
 
     trades =
       case exit_params do
@@ -874,7 +1099,10 @@ defmodule AlpacaTrader.Engine do
         reversed_arb = %ArbitragePosition{arb | direction: arb.direction, action: :enter}
         execute_entry(ctx, reversed_arb)
       else
-        Logger.info("[Flip] exit blocked — skipping reversed entry for #{arb.asset}↔#{arb.pair_asset}")
+        Logger.info(
+          "[Flip] exit blocked — skipping reversed entry for #{arb.asset}↔#{arb.pair_asset}"
+        )
+
         []
       end
 
@@ -886,13 +1114,15 @@ defmodule AlpacaTrader.Engine do
         :ets.insert(:pair_position_store, {
           pos.id,
           %PairPositionStore.PairPosition{
-            pos |
-            flip_count: pos.flip_count + 1,
-            consecutive_losses: if(was_profitable, do: 0, else: pos.consecutive_losses + 1),
-            last_flip_time: DateTime.utc_now()
+            pos
+            | flip_count: pos.flip_count + 1,
+              consecutive_losses: if(was_profitable, do: 0, else: pos.consecutive_losses + 1),
+              last_flip_time: DateTime.utc_now()
           }
         })
-      _ -> :ok
+
+      _ ->
+        :ok
     end
 
     exit_trades ++ entry_trades
@@ -907,7 +1137,7 @@ defmodule AlpacaTrader.Engine do
     pct = Application.get_env(:alpaca_trader, :order_notional_pct, 0.001)
     fixed_notional = Float.round(equity * pct, 2)
 
-    notional =
+    base_notional =
       case {position_sizing_mode(), arb} do
         {:vol_scaled, %ArbitragePosition{tier: tier, asset: a, pair_asset: b, hedge_ratio: hr}}
         when tier in [2, 3] and is_binary(a) and is_binary(b) ->
@@ -917,8 +1147,60 @@ defmodule AlpacaTrader.Engine do
           fixed_notional
       end
 
+    notional =
+      base_notional
+      |> apply_half_life_size_multiplier(arb)
+      |> apply_kelly_cap(equity)
+
     # Alpaca minimum notional is $1
     to_string(max(Float.round(notional, 2), 1.0))
+  end
+
+  # Optional Kelly-fractional ceiling: clips notional at
+  # (fraction * full_kelly * equity), capped at `kelly_max_cap_pct * equity`.
+  # Uses lifetime stats from TradeLog. Off by default.
+  defp apply_kelly_cap(notional, equity) do
+    if Application.get_env(:alpaca_trader, :kelly_enabled, false) and equity > 0 do
+      stats =
+        try do
+          AlpacaTrader.TradeLog.performance_stats()
+        catch
+          :exit, _ -> %{}
+        end
+
+      cap =
+        AlpacaTrader.Arbitrage.KellySizer.size_cap(equity, stats,
+          fraction: Application.get_env(:alpaca_trader, :kelly_fraction, 0.5),
+          max_cap_pct: Application.get_env(:alpaca_trader, :kelly_max_cap_pct, 0.05)
+        )
+
+      if cap > 0, do: min(notional, cap), else: notional
+    else
+      notional
+    end
+  end
+
+  # Optional size-by-half-life: scales notional inversely with the OU half-life
+  # of the pair's spread (clamped by HalfLifeManager). Off by default.
+  defp apply_half_life_size_multiplier(base_notional, arb) do
+    if Application.get_env(:alpaca_trader, :half_life_size_enabled, false) do
+      hl =
+        case arb do
+          %ArbitragePosition{tier: tier, asset: a, pair_asset: b}
+          when tier in [2, 3] and is_binary(a) and is_binary(b) ->
+            case recompute_spread_series(a, b) do
+              nil -> nil
+              spread -> MeanReversion.half_life(spread)
+            end
+
+          _ ->
+            nil
+        end
+
+      base_notional * HalfLifeManager.size_multiplier(hl)
+    else
+      base_notional
+    end
   end
 
   # Vol-scaled sizing: notional s.t. each position risks the same dollar amount.
@@ -935,7 +1217,10 @@ defmodule AlpacaTrader.Engine do
       spread = SpreadCalculator.spread_series(ca, cb, hr)
       n = length(spread)
       mean_spread = Enum.sum(spread) / n
-      variance = Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean_spread, 2) end) / n
+
+      variance =
+        Enum.reduce(spread, 0.0, fn x, acc -> acc + :math.pow(x - mean_spread, 2) end) / n
+
       std = :math.sqrt(variance)
       mean_price = Enum.sum(ca) / length(ca)
 
@@ -964,8 +1249,11 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp build_entry_params(ctx, %ArbitragePosition{tier: 1} = arb) do
-    %{"side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
-      "notional" => order_notional(ctx), "type" => "market"}
+    %{
+      "side" => if(arb.spread && arb.spread < 0, do: "sell", else: "buy"),
+      "notional" => order_notional(ctx),
+      "type" => "market"
+    }
   end
 
   defp build_entry_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
@@ -976,13 +1264,30 @@ defmodule AlpacaTrader.Engine do
       end
 
     notional = order_notional(ctx, arb)
-    %{pair: true, legs: [
-      %{"symbol" => long_sym, "side" => "buy", "notional" => notional, "type" => "market", "pair_leg" => true},
-      %{"symbol" => short_sym, "side" => "sell", "notional" => notional, "type" => "market", "pair_leg" => true}
-    ]}
+
+    %{
+      pair: true,
+      legs: [
+        %{
+          "symbol" => long_sym,
+          "side" => "buy",
+          "notional" => notional,
+          "type" => "market",
+          "pair_leg" => true
+        },
+        %{
+          "symbol" => short_sym,
+          "side" => "sell",
+          "notional" => notional,
+          "type" => "market",
+          "pair_leg" => true
+        }
+      ]
+    }
   end
 
-  defp build_entry_params(ctx, _arb), do: %{"side" => "buy", "notional" => order_notional(ctx), "type" => "market"}
+  defp build_entry_params(ctx, _arb),
+    do: %{"side" => "buy", "notional" => order_notional(ctx), "type" => "market"}
 
   defp build_exit_params(ctx, %ArbitragePosition{tier: tier} = arb) when tier in [2, 3] do
     # Reverse the entry: sell what was bought, buy back what was shorted
@@ -993,14 +1298,35 @@ defmodule AlpacaTrader.Engine do
       end
 
     notional = order_notional(ctx, arb)
-    %{pair: true, legs: [
-      %{"symbol" => sell_sym, "side" => "sell", "notional" => notional, "type" => "market", "pair_leg" => true},
-      %{"symbol" => buy_sym, "side" => "buy", "notional" => notional, "type" => "market", "pair_leg" => true}
-    ]}
+
+    %{
+      pair: true,
+      legs: [
+        %{
+          "symbol" => sell_sym,
+          "side" => "sell",
+          "notional" => notional,
+          "type" => "market",
+          "pair_leg" => true
+        },
+        %{
+          "symbol" => buy_sym,
+          "side" => "buy",
+          "notional" => notional,
+          "type" => "market",
+          "pair_leg" => true
+        }
+      ]
+    }
   end
 
   defp build_exit_params(ctx, arb) do
-    %{"side" => "sell", "notional" => order_notional(ctx), "type" => "market", "symbol" => arb.asset}
+    %{
+      "side" => "sell",
+      "notional" => order_notional(ctx),
+      "type" => "market",
+      "symbol" => arb.asset
+    }
   end
 
   # ── HELPERS ────────────────────────────────────────────────
@@ -1038,7 +1364,7 @@ defmodule AlpacaTrader.Engine do
       end)
 
     # Refresh 1-minute bars for all crypto symbols we're scanning
-    crypto_syms = assets |> Enum.filter(& &1["class"] == "crypto") |> Enum.map(& &1["symbol"])
+    crypto_syms = assets |> Enum.filter(&(&1["class"] == "crypto")) |> Enum.map(& &1["symbol"])
     AlpacaTrader.MinuteBarCache.refresh(crypto_syms)
 
     # Known asset scan (Tier 1/2/3 + exit checks)
@@ -1056,84 +1382,94 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp discover_new_pairs do
-    scanner_hits = try do
-      case AlpacaTrader.Arbitrage.DiscoveryScanner.discover() do
-        {signals, _count} when signals != [] ->
-          Enum.map(signals, &signal_to_arb/1)
-        _ -> []
+    scanner_hits =
+      try do
+        case AlpacaTrader.Arbitrage.DiscoveryScanner.discover() do
+          {signals, _count} when signals != [] ->
+            Enum.map(signals, &signal_to_arb/1)
+
+          _ ->
+            []
+        end
+      catch
+        :exit, _ -> []
       end
-    catch
-      :exit, _ -> []
-    end
 
     # Also check dynamically built pairs from PairBuilder
-    dynamic_hits = try do
-      AlpacaTrader.Arbitrage.PairBuilder.dynamic_pairs()
-      |> Enum.filter(fn p ->
-        p.z_score != nil and abs(p.z_score) > 2.0 and
-          PairPositionStore.find_open_for_asset(p.asset_a) == nil
-      end)
-      |> Enum.map(fn p ->
-        direction = if p.z_score > 0, do: :long_b_short_a, else: :long_a_short_b
+    dynamic_hits =
+      try do
+        AlpacaTrader.Arbitrage.PairBuilder.dynamic_pairs()
+        |> Enum.filter(fn p ->
+          p.z_score != nil and abs(p.z_score) > 2.0 and
+            PairPositionStore.find_open_for_asset(p.asset_a) == nil
+        end)
+        |> Enum.map(fn p ->
+          direction = if p.z_score > 0, do: :long_b_short_a, else: :long_a_short_b
 
-        %ArbitragePosition{
-          result: true,
-          asset: p.asset_a,
-          reason: "DYNAMIC PAIR: r=#{p.correlation} z=#{p.z_score} (#{p.asset_a}↔#{p.asset_b})",
-          action: :enter,
-          tier: 2,
-          pair_asset: p.asset_b,
-          direction: direction,
-          hedge_ratio: nil,
-          z_score: p.z_score,
-          spread: p.z_score,
-          timestamp: DateTime.utc_now()
-        }
-      end)
-    catch
-      :exit, _ -> []
-    end
+          %ArbitragePosition{
+            result: true,
+            asset: p.asset_a,
+            reason: "DYNAMIC PAIR: r=#{p.correlation} z=#{p.z_score} (#{p.asset_a}↔#{p.asset_b})",
+            action: :enter,
+            tier: 2,
+            pair_asset: p.asset_b,
+            direction: direction,
+            hedge_ratio: nil,
+            z_score: p.z_score,
+            spread: p.z_score,
+            timestamp: DateTime.utc_now()
+          }
+        end)
+      catch
+        :exit, _ -> []
+      end
 
     # Polymarket probability shift signals (Tier 4)
-    polymarket_hits = try do
-      AlpacaTrader.Polymarket.SignalGenerator.signals()
-      |> Enum.filter(fn sig ->
-        PairPositionStore.find_open_for_asset(sig.asset) == nil
-      end)
-    catch
-      :exit, _ -> []
-    end
+    polymarket_hits =
+      try do
+        AlpacaTrader.Polymarket.SignalGenerator.signals()
+        |> Enum.filter(fn sig ->
+          PairPositionStore.find_open_for_asset(sig.asset) == nil
+        end)
+      catch
+        :exit, _ -> []
+      end
 
     # Alternative data signals (Tier 5)
-    alt_data_hits = try do
-      entry_threshold = Application.get_env(:alpaca_trader, :alt_data_entry_threshold, 0.65)
+    alt_data_hits =
+      try do
+        entry_threshold = Application.get_env(:alpaca_trader, :alt_data_entry_threshold, 0.65)
 
-      AlpacaTrader.AltData.SignalStore.all_active()
-      |> Enum.filter(fn sig -> sig.strength >= entry_threshold and sig.direction in [:bullish, :risk_on] end)
-      |> Enum.flat_map(fn sig ->
-        Enum.flat_map(sig.affected_symbols || [], fn symbol ->
-          if PairPositionStore.find_open_for_asset(symbol) == nil do
-            [%ArbitragePosition{
-              result: true,
-              asset: symbol,
-              reason: "ALT_DATA[#{sig.provider}]: #{sig.reason}",
-              action: :enter,
-              tier: 5,
-              pair_asset: nil,
-              direction: nil,
-              hedge_ratio: nil,
-              z_score: nil,
-              spread: sig.strength,
-              timestamp: DateTime.utc_now()
-            }]
-          else
-            []
-          end
+        AlpacaTrader.AltData.SignalStore.all_active()
+        |> Enum.filter(fn sig ->
+          sig.strength >= entry_threshold and sig.direction in [:bullish, :risk_on]
         end)
-      end)
-    catch
-      :exit, _ -> []
-    end
+        |> Enum.flat_map(fn sig ->
+          Enum.flat_map(sig.affected_symbols || [], fn symbol ->
+            if PairPositionStore.find_open_for_asset(symbol) == nil do
+              [
+                %ArbitragePosition{
+                  result: true,
+                  asset: symbol,
+                  reason: "ALT_DATA[#{sig.provider}]: #{sig.reason}",
+                  action: :enter,
+                  tier: 5,
+                  pair_asset: nil,
+                  direction: nil,
+                  hedge_ratio: nil,
+                  z_score: nil,
+                  spread: sig.strength,
+                  timestamp: DateTime.utc_now()
+                }
+              ]
+            else
+              []
+            end
+          end)
+        end)
+      catch
+        :exit, _ -> []
+      end
 
     scanner_hits ++ dynamic_hits ++ polymarket_hits ++ alt_data_hits
   end
@@ -1154,4 +1490,51 @@ defmodule AlpacaTrader.Engine do
     }
   end
 
+  # ── SHADOW LOGGER HELPERS ──────────────────────────────────
+  # Additive, flag-gated. When :shadow_mode_enabled is false (the default),
+  # these are zero-work no-ops.
+
+  defp shadow_record(signal) do
+    if Application.get_env(:alpaca_trader, :shadow_mode_enabled, false) do
+      AlpacaTrader.ShadowLogger.record_signal(signal)
+    end
+
+    :ok
+  end
+
+  defp shadow_record_blocked(arb, gate_rejections) do
+    shadow_record(%{
+      timestamp: DateTime.utc_now(),
+      pair: shadow_pair(arb),
+      event: :entry_signal,
+      status: :blocked,
+      z_score: shadow_z(arb),
+      gate_rejections: gate_rejections
+    })
+  end
+
+  defp shadow_record_entry_result(arb, trades) do
+    status =
+      if Enum.any?(trades, &(&1.action in [:bought, :sold])),
+        do: :filled,
+        else: :rejected
+
+    shadow_record(%{
+      timestamp: DateTime.utc_now(),
+      pair: shadow_pair(arb),
+      event: :entry_signal,
+      status: status,
+      z_score: shadow_z(arb)
+    })
+  end
+
+  defp shadow_pair(%ArbitragePosition{asset: a, pair_asset: b})
+       when is_binary(a) and is_binary(b),
+       do: "#{a}-#{b}"
+
+  defp shadow_pair(%ArbitragePosition{asset: a}) when is_binary(a), do: a
+  defp shadow_pair(_), do: "unknown"
+
+  defp shadow_z(%ArbitragePosition{z_score: z}) when is_number(z), do: z * 1.0
+  defp shadow_z(_), do: 0.0
 end

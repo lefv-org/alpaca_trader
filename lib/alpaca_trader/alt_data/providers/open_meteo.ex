@@ -14,16 +14,18 @@ defmodule AlpacaTrader.AltData.Providers.OpenMeteo do
   # Key agricultural/energy locations
   @locations [
     # Corn Belt
-    %{name: "Iowa", lat: 42.03, lon: -93.65, type: :agriculture,
-      symbols: ["CORN", "SOYB", "DBA"]},
+    %{
+      name: "Iowa",
+      lat: 42.03,
+      lon: -93.65,
+      type: :agriculture,
+      symbols: ["CORN", "SOYB", "DBA"]
+    },
     # Wheat Belt
-    %{name: "Kansas", lat: 38.50, lon: -98.77, type: :agriculture,
-      symbols: ["WEAT", "DBA"]},
+    %{name: "Kansas", lat: 38.50, lon: -98.77, type: :agriculture, symbols: ["WEAT", "DBA"]},
     # Energy demand (population centers)
-    %{name: "Chicago", lat: 41.88, lon: -87.63, type: :energy,
-      symbols: ["UNG", "XLE", "XLU"]},
-    %{name: "Houston", lat: 29.76, lon: -95.37, type: :energy,
-      symbols: ["XOM", "CVX", "XLE"]}
+    %{name: "Chicago", lat: 41.88, lon: -87.63, type: :energy, symbols: ["UNG", "XLE", "XLU"]},
+    %{name: "Houston", lat: 29.76, lon: -95.37, type: :energy, symbols: ["XOM", "CVX", "XLE"]}
   ]
 
   @impl true
@@ -87,54 +89,86 @@ defmodule AlpacaTrader.AltData.Providers.OpenMeteo do
     |> maybe_flood_signal(loc, total_precip, now, expires)
     |> maybe_drought_signal(loc, total_precip, max_temp, now, expires)
   end
+
   defp analyze_forecast(_loc, _data), do: []
 
-  defp maybe_heat_signal(signals, %{type: :agriculture} = loc, max_temp, now, expires) when max_temp > 100 do
-    [%Signal{
-      provider: :open_meteo, signal_type: :weather, direction: :bullish,
-      strength: min((max_temp - 95) / 20.0, 1.0),
-      affected_symbols: loc.symbols,
-      reason: "Extreme heat #{loc.name}: #{max_temp}°F — crop stress",
-      fetched_at: now, expires_at: expires,
-      raw: %{location: loc.name, max_temp: max_temp, type: :heat_stress}
-    } | signals]
+  defp maybe_heat_signal(signals, %{type: :agriculture} = loc, max_temp, now, expires)
+       when max_temp > 100 do
+    [
+      %Signal{
+        provider: :open_meteo,
+        signal_type: :weather,
+        direction: :bullish,
+        strength: min((max_temp - 95) / 20.0, 1.0),
+        affected_symbols: loc.symbols,
+        reason: "Extreme heat #{loc.name}: #{max_temp}°F — crop stress",
+        fetched_at: now,
+        expires_at: expires,
+        raw: %{location: loc.name, max_temp: max_temp, type: :heat_stress}
+      }
+      | signals
+    ]
   end
+
   defp maybe_heat_signal(signals, _, _, _, _), do: signals
 
-  defp maybe_cold_signal(signals, %{type: :energy} = loc, min_temp, now, expires) when min_temp < 10 do
-    [%Signal{
-      provider: :open_meteo, signal_type: :weather, direction: :bullish,
-      strength: min((32 - min_temp) / 40.0, 1.0),
-      affected_symbols: loc.symbols,
-      reason: "Extreme cold #{loc.name}: #{min_temp}°F — heating demand spike",
-      fetched_at: now, expires_at: expires,
-      raw: %{location: loc.name, min_temp: min_temp, type: :cold_demand}
-    } | signals]
+  defp maybe_cold_signal(signals, %{type: :energy} = loc, min_temp, now, expires)
+       when min_temp < 10 do
+    [
+      %Signal{
+        provider: :open_meteo,
+        signal_type: :weather,
+        direction: :bullish,
+        strength: min((32 - min_temp) / 40.0, 1.0),
+        affected_symbols: loc.symbols,
+        reason: "Extreme cold #{loc.name}: #{min_temp}°F — heating demand spike",
+        fetched_at: now,
+        expires_at: expires,
+        raw: %{location: loc.name, min_temp: min_temp, type: :cold_demand}
+      }
+      | signals
+    ]
   end
+
   defp maybe_cold_signal(signals, _, _, _, _), do: signals
 
-  defp maybe_flood_signal(signals, %{type: :agriculture} = loc, precip, now, expires) when precip > 4.0 do
-    [%Signal{
-      provider: :open_meteo, signal_type: :weather, direction: :bullish,
-      strength: min(precip / 8.0, 1.0),
-      affected_symbols: loc.symbols,
-      reason: "Heavy rain #{loc.name}: #{Float.round(precip, 1)}in/7d — flood risk",
-      fetched_at: now, expires_at: expires,
-      raw: %{location: loc.name, precip_7d: precip, type: :flood_risk}
-    } | signals]
+  defp maybe_flood_signal(signals, %{type: :agriculture} = loc, precip, now, expires)
+       when precip > 4.0 do
+    [
+      %Signal{
+        provider: :open_meteo,
+        signal_type: :weather,
+        direction: :bullish,
+        strength: min(precip / 8.0, 1.0),
+        affected_symbols: loc.symbols,
+        reason: "Heavy rain #{loc.name}: #{Float.round(precip, 1)}in/7d — flood risk",
+        fetched_at: now,
+        expires_at: expires,
+        raw: %{location: loc.name, precip_7d: precip, type: :flood_risk}
+      }
+      | signals
+    ]
   end
+
   defp maybe_flood_signal(signals, _, _, _, _), do: signals
 
   defp maybe_drought_signal(signals, %{type: :agriculture} = loc, precip, max_temp, now, expires)
        when precip < 0.1 and max_temp > 90 do
-    [%Signal{
-      provider: :open_meteo, signal_type: :weather, direction: :bullish,
-      strength: min((max_temp - 85) / 25.0, 0.9),
-      affected_symbols: loc.symbols,
-      reason: "Drought risk #{loc.name}: 0 rain + #{max_temp}°F — crop yield threat",
-      fetched_at: now, expires_at: expires,
-      raw: %{location: loc.name, precip_7d: precip, max_temp: max_temp, type: :drought}
-    } | signals]
+    [
+      %Signal{
+        provider: :open_meteo,
+        signal_type: :weather,
+        direction: :bullish,
+        strength: min((max_temp - 85) / 25.0, 0.9),
+        affected_symbols: loc.symbols,
+        reason: "Drought risk #{loc.name}: 0 rain + #{max_temp}°F — crop yield threat",
+        fetched_at: now,
+        expires_at: expires,
+        raw: %{location: loc.name, precip_7d: precip, max_temp: max_temp, type: :drought}
+      }
+      | signals
+    ]
   end
+
   defp maybe_drought_signal(signals, _, _, _, _, _), do: signals
 end

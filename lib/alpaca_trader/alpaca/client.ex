@@ -96,7 +96,8 @@ defmodule AlpacaTrader.Alpaca.Client do
 
   defp data_client do
     opts = [
-      base_url: Application.get_env(:alpaca_trader, :alpaca_data_url, "https://data.alpaca.markets"),
+      base_url:
+        Application.get_env(:alpaca_trader, :alpaca_data_url, "https://data.alpaca.markets"),
       headers: [
         {"APCA-API-KEY-ID", Application.fetch_env!(:alpaca_trader, :alpaca_key_id)},
         {"APCA-API-SECRET-KEY", Application.fetch_env!(:alpaca_trader, :alpaca_secret_key)}
@@ -113,13 +114,64 @@ defmodule AlpacaTrader.Alpaca.Client do
 
   def get_crypto_snapshots(symbols) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
-    data_client() |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined]) |> handle()
+
+    data_client()
+    |> Req.get(url: "/v1beta3/crypto/us/snapshots", params: [symbols: joined])
+    |> handle()
   end
 
   def get_stock_snapshots(symbols) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
-    data_client() |> Req.get(url: "/v2/stocks/snapshots", params: [symbols: joined, feed: "iex"]) |> handle()
+
+    data_client()
+    |> Req.get(url: "/v2/stocks/snapshots", params: [symbols: joined, feed: "iex"])
+    |> handle()
   end
+
+  @doc """
+  Latest top-of-book quote for a single symbol. Routes to the stock or crypto
+  quote endpoint based on symbol shape (crypto pairs contain `/`, e.g. "BTC/USD").
+
+  Returns `{:ok, %{bid: float, ask: float}}` on success, `{:error, reason}` otherwise.
+  Used by the marketable-limit order path to anchor the limit price.
+  """
+  def latest_quote(symbol) when is_binary(symbol) do
+    cond do
+      String.contains?(symbol, "/") ->
+        data_client()
+        |> Req.get(url: "/v1beta3/crypto/us/latest/quotes", params: [symbols: symbol])
+        |> handle()
+        |> extract_quote(symbol, :crypto)
+
+      true ->
+        data_client()
+        |> Req.get(url: "/v2/stocks/#{symbol}/quotes/latest", params: [feed: "iex"])
+        |> handle()
+        |> extract_quote(symbol, :stock)
+    end
+  end
+
+  defp extract_quote({:ok, body}, symbol, :stock) do
+    case get_in(body, ["quote"]) do
+      %{"bp" => bp, "ap" => ap} when is_number(bp) and is_number(ap) ->
+        {:ok, %{bid: bp / 1.0, ask: ap / 1.0}}
+
+      _ ->
+        {:error, {:no_quote, symbol}}
+    end
+  end
+
+  defp extract_quote({:ok, body}, symbol, :crypto) do
+    case get_in(body, ["quotes", symbol]) do
+      %{"bp" => bp, "ap" => ap} when is_number(bp) and is_number(ap) ->
+        {:ok, %{bid: bp / 1.0, ask: ap / 1.0}}
+
+      _ ->
+        {:error, {:no_quote, symbol}}
+    end
+  end
+
+  defp extract_quote({:error, _} = err, _symbol, _kind), do: err
 
   def get_stock_bars(symbols, params \\ %{}) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
@@ -134,6 +186,9 @@ defmodule AlpacaTrader.Alpaca.Client do
     start = Date.utc_today() |> Date.add(-90) |> Date.to_iso8601()
     defaults = %{timeframe: "1Day", limit: 1000, start: start}
     merged = Map.merge(defaults, params) |> Map.put(:symbols, joined)
-    data_client() |> Req.get(url: "/v1beta3/crypto/us/bars", params: Map.to_list(merged)) |> handle()
+
+    data_client()
+    |> Req.get(url: "/v1beta3/crypto/us/bars", params: Map.to_list(merged))
+    |> handle()
   end
 end

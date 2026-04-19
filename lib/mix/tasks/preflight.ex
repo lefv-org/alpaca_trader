@@ -36,7 +36,10 @@ defmodule Mix.Tasks.Preflight do
     alias AlpacaTrader.Alpaca.Client
 
     base_url = Application.get_env(:alpaca_trader, :alpaca_base_url, "?")
-    is_live = String.contains?(base_url, "api.alpaca.markets") and not String.contains?(base_url, "paper-api")
+
+    is_live =
+      String.contains?(base_url, "api.alpaca.markets") and
+        not String.contains?(base_url, "paper-api")
 
     {:ok, account} = Client.get_account()
     {:ok, positions} = Client.list_positions()
@@ -122,12 +125,30 @@ defmodule Mix.Tasks.Preflight do
     Mix.shell().info("Shorting:      #{account["shorting_enabled"]}")
 
     Mix.shell().info("\n-- Config Flags --")
-    Mix.shell().info("  PAIR_WHITELIST_ENABLED:    #{Application.get_env(:alpaca_trader, :pair_whitelist_enabled)}")
-    Mix.shell().info("  PAIR_COINTEGRATION_GATE:   #{Application.get_env(:alpaca_trader, :pair_cointegration_gate)}")
-    Mix.shell().info("  POSITION_SIZING_MODE:      #{Application.get_env(:alpaca_trader, :position_sizing_mode)}")
-    Mix.shell().info("  HEDGE_RATIO_MODE:          #{Application.get_env(:alpaca_trader, :hedge_ratio_mode)}")
-    Mix.shell().info("  ORDER_TYPE_MODE:           #{Application.get_env(:alpaca_trader, :order_type_mode)}")
-    Mix.shell().info("  ORDER_NOTIONAL_PCT:        #{Application.get_env(:alpaca_trader, :order_notional_pct)}")
+
+    Mix.shell().info(
+      "  PAIR_WHITELIST_ENABLED:    #{Application.get_env(:alpaca_trader, :pair_whitelist_enabled)}"
+    )
+
+    Mix.shell().info(
+      "  PAIR_COINTEGRATION_GATE:   #{Application.get_env(:alpaca_trader, :pair_cointegration_gate)}"
+    )
+
+    Mix.shell().info(
+      "  POSITION_SIZING_MODE:      #{Application.get_env(:alpaca_trader, :position_sizing_mode)}"
+    )
+
+    Mix.shell().info(
+      "  HEDGE_RATIO_MODE:          #{Application.get_env(:alpaca_trader, :hedge_ratio_mode)}"
+    )
+
+    Mix.shell().info(
+      "  ORDER_TYPE_MODE:           #{Application.get_env(:alpaca_trader, :order_type_mode)}"
+    )
+
+    Mix.shell().info(
+      "  ORDER_NOTIONAL_PCT:        #{Application.get_env(:alpaca_trader, :order_notional_pct)}"
+    )
 
     if report == [] do
       Mix.shell().info("\n✅ ALL CHECKS PASSED — safe to start.")

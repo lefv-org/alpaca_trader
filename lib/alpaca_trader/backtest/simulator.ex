@@ -156,7 +156,8 @@ defmodule AlpacaTrader.Backtest.Simulator do
             fill_price(price_b_i, side_b, config)
           }
 
-        notional = compute_notional(state.equity, spread, window_a, window_b, analysis, config)
+        base_notional = compute_notional(state.equity, spread, window_a, window_b, analysis, config)
+        notional = kelly_clip(base_notional, state, state.equity * initial_notional(config), config)
         hl = MeanReversion.half_life(spread)
 
         pos = %{
@@ -303,6 +304,60 @@ defmodule AlpacaTrader.Backtest.Simulator do
       base
     end
   end
+
+  # Kelly-fractional *ceiling* on notional. Never increases size; only clips
+  # down if the Kelly cap is tighter than the vol-scaled amount. Stats are
+  # derived from the in-progress trade history — at least 10 trades required
+  # before a real Kelly cap kicks in; below that we fall back to the
+  # max_cap_pct policy floor (via `KellySizer.size_cap`).
+  defp kelly_clip(notional, state, equity_dollars, config) do
+    if Map.get(config, :kelly_enabled, false) and equity_dollars > 0 do
+      stats = running_stats(state.trades)
+
+      cap =
+        AlpacaTrader.Arbitrage.KellySizer.size_cap(equity_dollars, stats,
+          fraction: Map.get(config, :kelly_fraction, 0.5),
+          max_cap_pct: Map.get(config, :kelly_max_cap_pct, 0.10)
+        )
+
+      # Never clip below a minimum viable notional; if the Kelly cap is <= 0
+      # (equity collapse, etc.), fall back to the incoming notional rather
+      # than creating a divide-by-zero downstream.
+      if cap > 0, do: min(notional, cap), else: notional
+    else
+      notional
+    end
+  end
+
+  defp running_stats([]), do: %{}
+
+  defp running_stats(trades) do
+    n = length(trades)
+
+    if n < 10 do
+      %{}
+    else
+      wins = Enum.filter(trades, &(&1.pnl_pct > 0))
+      losses = Enum.filter(trades, &(&1.pnl_pct <= 0))
+      win_n = length(wins)
+      loss_n = length(losses)
+
+      cond do
+        win_n == 0 or loss_n == 0 ->
+          %{}
+
+        true ->
+          %{
+            win_rate: win_n / n,
+            avg_win_pct: avg(Enum.map(wins, & &1.pnl_pct)),
+            avg_loss_pct: abs(avg(Enum.map(losses, & &1.pnl_pct)))
+          }
+      end
+    end
+  end
+
+  defp avg([]), do: 0.0
+  defp avg(xs), do: Enum.sum(xs) / length(xs)
 
   defp compute_base_notional(_equity, _spread, _wa, _wb, _analysis, %{position_sizing: :fixed} = config) do
     config.notional

@@ -967,10 +967,37 @@ defmodule AlpacaTrader.Engine do
           fixed_notional
       end
 
-    notional = apply_half_life_size_multiplier(base_notional, arb)
+    notional =
+      base_notional
+      |> apply_half_life_size_multiplier(arb)
+      |> apply_kelly_cap(equity)
 
     # Alpaca minimum notional is $1
     to_string(max(Float.round(notional, 2), 1.0))
+  end
+
+  # Optional Kelly-fractional ceiling: clips notional at
+  # (fraction * full_kelly * equity), capped at `kelly_max_cap_pct * equity`.
+  # Uses lifetime stats from TradeLog. Off by default.
+  defp apply_kelly_cap(notional, equity) do
+    if Application.get_env(:alpaca_trader, :kelly_enabled, false) and equity > 0 do
+      stats =
+        try do
+          AlpacaTrader.TradeLog.performance_stats()
+        catch
+          :exit, _ -> %{}
+        end
+
+      cap =
+        AlpacaTrader.Arbitrage.KellySizer.size_cap(equity, stats,
+          fraction: Application.get_env(:alpaca_trader, :kelly_fraction, 0.5),
+          max_cap_pct: Application.get_env(:alpaca_trader, :kelly_max_cap_pct, 0.05)
+        )
+
+      if cap > 0, do: min(notional, cap), else: notional
+    else
+      notional
+    end
   end
 
   # Optional size-by-half-life: scales notional inversely with the OU half-life

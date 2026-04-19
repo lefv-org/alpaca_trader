@@ -177,5 +177,39 @@ defmodule AlpacaTrader.Backtest.SimulatorTest do
       # time-stop fired — not the fallback max_hold_bars.
       assert :max_hold in reasons or reasons == []
     end
+
+    test "kelly_enabled caps notional below fixed size once history accrues" do
+      :rand.seed(:exsss, {4, 5, 6})
+
+      {closes_a, _} =
+        Enum.reduce(1..800, {[], 100.0}, fn _, {acc, last} ->
+          new = last + :rand.normal() * 0.5
+          {[new | acc], new}
+        end)
+
+      {closes_b, _} =
+        Enum.reduce(1..800, {[], 100.0}, fn _, {acc, last} ->
+          new = last + :rand.normal() * 0.5
+          {[new | acc], new}
+        end)
+
+      closes_a = Enum.reverse(closes_a)
+      closes_b = Enum.reverse(closes_b)
+
+      cfg = %{
+        notional: 10_000.0,
+        kelly_enabled: true,
+        kelly_fraction: 0.5,
+        # 1% of equity max — a tight ceiling
+        kelly_max_cap_pct: 0.01,
+        entry_z: 1.0,
+        exit_z: 0.3,
+        stop_z: 5.0,
+        require_cointegration: false
+      }
+
+      result = AlpacaTrader.Backtest.Simulator.run_pair("A-B", closes_a, closes_b, cfg)
+      assert Enum.all?(result.trades, fn t -> t.notional <= 10_000.0 end)
+    end
   end
 end

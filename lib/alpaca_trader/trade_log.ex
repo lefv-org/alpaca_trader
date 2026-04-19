@@ -41,6 +41,51 @@ defmodule AlpacaTrader.TradeLog do
   @doc "Current log path."
   def path, do: GenServer.call(__MODULE__, :path)
 
+  @doc """
+  Aggregate performance statistics across all recorded trades with a non-nil
+  `pnl_pct`. Used by Kelly sizing (and any other module that wants a
+  lifetime edge estimate).
+
+  Requires at least 10 completed trades with both wins and losses to return
+  a meaningful stats map. Below that threshold returns `%{}` so callers
+  can apply a safe fallback (typically the hard max-cap ceiling).
+
+  The shape matches `AlpacaTrader.Backtest.Simulator`'s in-progress
+  running stats: `%{win_rate, avg_win_pct, avg_loss_pct}`.
+  """
+  def performance_stats do
+    entries =
+      try do
+        read_all()
+      catch
+        :exit, _ -> []
+      end
+
+    pnl_pcts =
+      entries
+      |> Enum.map(&Map.get(&1, "pnl_pct"))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&is_number/1)
+
+    n = length(pnl_pcts)
+
+    if n < 10 do
+      %{}
+    else
+      {wins, losses} = Enum.split_with(pnl_pcts, &(&1 > 0))
+
+      if wins == [] or losses == [] do
+        %{}
+      else
+        %{
+          win_rate: length(wins) / n,
+          avg_win_pct: Enum.sum(wins) / length(wins),
+          avg_loss_pct: abs(Enum.sum(losses) / length(losses))
+        }
+      end
+    end
+  end
+
   # ── GenServer callbacks ────────────────────────────────────
 
   @impl true

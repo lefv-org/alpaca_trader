@@ -187,5 +187,12 @@ if config_env() != :test do
     #   max_hold_bars when half-life is nil). Always on as a safety valve.
     # - Sizing: scale notional inversely with half-life. Off by default.
     half_life_time_stop_mult: String.to_float(System.get_env("HALF_LIFE_TIME_STOP_MULT", "2.0")),
-    half_life_size_enabled: System.get_env("HALF_LIFE_SIZE_ENABLED", "false") == "true"
+    half_life_size_enabled: System.get_env("HALF_LIFE_SIZE_ENABLED", "false") == "true",
+    # Kelly-fractional sizing cap (Task 4). Off by default — when enabled,
+    # clips notional at (fraction * full_kelly * equity), with a hard ceiling
+    # of `kelly_max_cap_pct * equity`. Lifetime stats are sourced from
+    # TradeLog.performance_stats/0.
+    kelly_enabled: System.get_env("KELLY_ENABLED", "false") == "true",
+    kelly_fraction: String.to_float(System.get_env("KELLY_FRACTION", "0.5")),
+    kelly_max_cap_pct: String.to_float(System.get_env("KELLY_MAX_CAP_PCT", "0.05"))
 end

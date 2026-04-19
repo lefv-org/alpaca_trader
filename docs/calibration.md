@@ -24,7 +24,10 @@ short loop you can re-run any time fills drift.
 
    Each per-pair robustness entry now includes
    `sharpe_window_annualized` (mean/std of per-window returns, annualized
-   by `sqrt(12)`), computed from the same slippage-adjusted returns.
+   by the window size), computed from the same slippage-adjusted returns.
+   The annualization factor is derived from `window_bars` assuming hourly
+   bars; for the default `window_bars: 720` at hourly frequency this
+   represents ~8.4 windows per year (factor ≈ sqrt(8.4)).
 
 3. **Gate the whitelist on net Sharpe.** Pass a threshold when generating
    the whitelist so pairs that only win on gross returns are dropped:

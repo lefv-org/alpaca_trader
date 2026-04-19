@@ -62,6 +62,35 @@ defmodule AlpacaTrader.BarsStore do
     end
   end
 
+  @doc """
+  Return the last `n` arithmetic returns for a symbol's close series.
+
+  Pulls bars via `get_closes/1` (timestamp-ascending), computes
+  `(p_t - p_{t-1}) / p_{t-1}` and returns the tail of length `n`.
+
+  Returns `[]` when the symbol is unknown or has fewer than 2 closes.
+  """
+  def recent_returns(symbol, n) when is_integer(n) and n > 0 do
+    case get_closes(symbol) do
+      {:ok, closes} when is_list(closes) and length(closes) >= 2 ->
+        closes
+        |> compute_returns()
+        |> Enum.take(-n)
+
+      _ ->
+        []
+    end
+  end
+
+  defp compute_returns(prices) do
+    prices
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn
+      [a, b] when is_number(a) and is_number(b) and a != 0 -> [(b - a) / a]
+      _ -> []
+    end)
+  end
+
   @doc "Count of symbols stored."
   def count do
     case :ets.info(@table) do

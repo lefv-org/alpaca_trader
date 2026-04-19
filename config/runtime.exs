@@ -198,5 +198,13 @@ if config_env() != :test do
     # TradeLog.performance_stats/0.
     kelly_enabled: System.get_env("KELLY_ENABLED", "false") == "true",
     kelly_fraction: String.to_float(System.get_env("KELLY_FRACTION", "0.5")),
-    kelly_max_cap_pct: String.to_float(System.get_env("KELLY_MAX_CAP_PCT", "0.05"))
+    kelly_max_cap_pct: String.to_float(System.get_env("KELLY_MAX_CAP_PCT", "0.05")),
+    # Correlation-cluster exposure cap (Task 6). Off by default. When
+    # enabled, PortfolioRisk rejects entries that would push a cluster
+    # of correlated symbols past `max_pairs_per_cluster` concurrent
+    # members. Cluster membership is computed via single-linkage
+    # transitive closure on Pearson correlation of recent return series.
+    cluster_limiter_enabled: System.get_env("CLUSTER_LIMITER_ENABLED", "false") == "true",
+    cluster_corr_threshold: String.to_float(System.get_env("CLUSTER_CORR_THRESHOLD", "0.8")),
+    max_pairs_per_cluster: String.to_integer(System.get_env("MAX_PAIRS_PER_CLUSTER", "3"))
 end

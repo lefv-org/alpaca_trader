@@ -627,23 +627,28 @@ defmodule AlpacaTrader.Engine do
     cond do
       not can_afford_entry?(ctx) ->
         Logger.debug("[Pre-flight] ⏸ skipping #{arb.asset}: insufficient buying power for entry")
+        shadow_record_blocked(arb, [:buying_power])
         []
 
       not gain_allows_entry?(ctx) ->
+        shadow_record_blocked(arb, [:gain_accumulator])
         []
 
       alt_data_suppressed?(arb.asset) ->
         Logger.info("[AltData] suppressing entry on #{arb.asset}: bearish/risk-off signal active")
+        shadow_record_blocked(arb, [:alt_data])
         []
 
       true ->
         case AlpacaTrader.LLM.OpinionGate.evaluate(arb, ctx) do
           {:ok, %{decision: "suppress"}} ->
             Logger.info("[LLM Gate] SUPPRESSED #{arb.asset}: #{arb.reason}")
+            shadow_record_blocked(arb, [:llm_suppress])
             []
 
           {:ok, %{conviction: c}} when c < 0.3 ->
             Logger.info("[LLM Gate] LOW CONVICTION #{Float.round(c, 2)} for #{arb.asset}")
+            shadow_record_blocked(arb, [:llm_low_conviction])
             []
 
           {:ok, %{conviction: c, reasoning: r}} ->
@@ -755,22 +760,27 @@ defmodule AlpacaTrader.Engine do
       # windows. When the whitelist is disabled or empty this is a no-op.
       not AlpacaTrader.Arbitrage.PairWhitelist.allowed?(arb.asset, arb.pair_asset) ->
         Logger.debug("[Trade] ⏸ HOLD pair #{pair_label} (not whitelisted)")
+        shadow_record_blocked(arb, [:whitelist])
         []
 
       true ->
         case regime_gate(arb) do
           {:blocked, reason} ->
             Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (regime): #{inspect(reason)}")
+            shadow_record_blocked(arb, [:regime])
             []
 
           :ok ->
             case AlpacaTrader.PortfolioRisk.allow_entry?(arb) do
               {:blocked, reason} ->
                 Logger.info("[Trade] ⏸ HOLD pair #{pair_label} (portfolio): #{reason}")
+                shadow_record_blocked(arb, [:portfolio])
                 []
 
               :ok ->
-                execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+                trades = execute_entry_post_portfolio_gate(ctx, arb, pair_label)
+                shadow_record_entry_result(arb, trades)
+                trades
             end
         end
     end
@@ -851,6 +861,14 @@ defmodule AlpacaTrader.Engine do
     # Close the position: reverse the original direction
     exit_params = build_exit_params(ctx, arb)
     pair_label = "#{arb.asset}↔#{arb.pair_asset}"
+
+    shadow_record(%{
+      timestamp: DateTime.utc_now(),
+      pair: shadow_pair(arb),
+      event: :exit_signal,
+      status: :would_exit,
+      z_score: shadow_z(arb)
+    })
 
     trades =
       case exit_params do
@@ -1256,4 +1274,50 @@ defmodule AlpacaTrader.Engine do
     }
   end
 
+  # ── SHADOW LOGGER HELPERS ──────────────────────────────────
+  # Additive, flag-gated. When :shadow_mode_enabled is false (the default),
+  # these are zero-work no-ops.
+
+  defp shadow_record(signal) do
+    if Application.get_env(:alpaca_trader, :shadow_mode_enabled, false) do
+      AlpacaTrader.ShadowLogger.record_signal(signal)
+    end
+
+    :ok
+  end
+
+  defp shadow_record_blocked(arb, gate_rejections) do
+    shadow_record(%{
+      timestamp: DateTime.utc_now(),
+      pair: shadow_pair(arb),
+      event: :entry_signal,
+      status: :blocked,
+      z_score: shadow_z(arb),
+      gate_rejections: gate_rejections
+    })
+  end
+
+  defp shadow_record_entry_result(arb, trades) do
+    status =
+      if Enum.any?(trades, &(&1.action in [:bought, :sold])),
+        do: :filled,
+        else: :rejected
+
+    shadow_record(%{
+      timestamp: DateTime.utc_now(),
+      pair: shadow_pair(arb),
+      event: :entry_signal,
+      status: status,
+      z_score: shadow_z(arb)
+    })
+  end
+
+  defp shadow_pair(%ArbitragePosition{asset: a, pair_asset: b}) when is_binary(a) and is_binary(b),
+    do: "#{a}-#{b}"
+
+  defp shadow_pair(%ArbitragePosition{asset: a}) when is_binary(a), do: a
+  defp shadow_pair(_), do: "unknown"
+
+  defp shadow_z(%ArbitragePosition{z_score: z}) when is_number(z), do: z * 1.0
+  defp shadow_z(_), do: 0.0
 end

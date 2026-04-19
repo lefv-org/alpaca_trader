@@ -209,5 +209,11 @@ if config_env() != :test do
     # transitive closure on Pearson correlation of recent return series.
     cluster_limiter_enabled: System.get_env("CLUSTER_LIMITER_ENABLED", "false") == "true",
     cluster_corr_threshold: String.to_float(System.get_env("CLUSTER_CORR_THRESHOLD", "0.8")),
-    max_pairs_per_cluster: String.to_integer(System.get_env("MAX_PAIRS_PER_CLUSTER", "3"))
+    max_pairs_per_cluster: String.to_integer(System.get_env("MAX_PAIRS_PER_CLUSTER", "3")),
+    # Shadow-mode signal logger (Task 8). When enabled, the engine records
+    # every entry/exit signal (including gate rejections) as an append-only
+    # JSONL log — used to detect silent drift between engine-intended
+    # activity and live fills. Off by default: zero-work no-op when false.
+    shadow_mode_enabled: System.get_env("SHADOW_MODE_ENABLED", "false") == "true",
+    shadow_log_path: System.get_env("SHADOW_LOG_PATH", "priv/runtime/shadow_signals.jsonl")
 end

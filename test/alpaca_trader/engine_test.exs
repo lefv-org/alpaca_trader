@@ -369,4 +369,32 @@ defmodule AlpacaTrader.EngineTest do
       assert AlpacaTrader.RegimeDetector.allow_entry?(%{spread: [], symbol_a_closes: []}, []) == :ok
     end
   end
+
+  describe "shadow logger" do
+    # Direct-exercise test. Wiring a live gate-reject through engine
+    # fixtures is fragile across gate chains; instead, verify that
+    # toggling the flag flows signals into the ShadowLogger counters.
+    test "shadow logger counters increment when signals are recorded and flag is on" do
+      prev = Application.get_env(:alpaca_trader, :shadow_mode_enabled, false)
+      Application.put_env(:alpaca_trader, :shadow_mode_enabled, true)
+      on_exit(fn -> Application.put_env(:alpaca_trader, :shadow_mode_enabled, prev) end)
+
+      before = AlpacaTrader.ShadowLogger.summary()
+      before_blocked = Map.get(before, :blocked, 0)
+
+      AlpacaTrader.ShadowLogger.record_signal(%{
+        timestamp: DateTime.utc_now(),
+        pair: "AAA-BBB",
+        event: :entry_signal,
+        status: :blocked,
+        z_score: 2.5,
+        gate_rejections: [:regime]
+      })
+
+      # Sync via a call so the prior cast is processed before we inspect.
+      _ = AlpacaTrader.ShadowLogger.summary()
+      after_counters = AlpacaTrader.ShadowLogger.summary()
+      assert Map.get(after_counters, :blocked, 0) == before_blocked + 1
+    end
+  end
 end

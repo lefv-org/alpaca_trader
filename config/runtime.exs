@@ -85,6 +85,10 @@ if config_env() == :prod do
 end
 
 if config_env() != :test do
+  # Broker registry — resolves venue atoms to concrete modules.
+  # Broker.impl/1 looks up here. Add more venues (hyperliquid etc.) as adapters land.
+  config :alpaca_trader, :brokers, alpaca: AlpacaTrader.Brokers.Alpaca
+
   config :alpaca_trader,
     alpaca_base_url: System.fetch_env!("ALPACA_BASE_URL"),
     # paper:  https://paper-api.alpaca.markets

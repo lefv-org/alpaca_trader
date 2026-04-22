@@ -62,6 +62,17 @@ defmodule AlpacaTrader.Brokers.Alpaca do
   @impl true
   def funding_rate(_symbol), do: {:error, :not_supported}
 
+  @doc """
+  Escape hatch for callers that still build Alpaca-native order param maps
+  (engine/order_executor pre-Strategy-abstraction). Bypasses struct
+  conversion and returns raw broker responses.
+
+  Phase 3 removes this: strategies will emit `%Signal{}` → OrderRouter
+  builds `%Order{}` → `submit_order/2`.
+  """
+  @spec submit_order_raw(map) :: {:ok, map} | {:error, term}
+  def submit_order_raw(params) when is_map(params), do: Client.create_order(params)
+
   @impl true
   def capabilities do
     %Capabilities{

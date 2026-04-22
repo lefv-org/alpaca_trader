@@ -147,7 +147,7 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
           |> maybe_put(:stop_price, params["stop_price"])
           |> Map.put_new(:client_order_id, params["client_order_id"] || new_client_order_id())
 
-        case AlpacaTrader.Alpaca.Client.create_order(order_params) do
+        case AlpacaTrader.Broker.impl(:alpaca).submit_order_raw(order_params) do
           {:ok, order} ->
             action = if(side == "buy", do: :bought, else: :sold)
             emoji = if side == "buy", do: "🟢", else: "🔴"

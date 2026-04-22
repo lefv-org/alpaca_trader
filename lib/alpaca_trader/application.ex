@@ -27,6 +27,9 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.AltData.Supervisor,
       AlpacaTrader.Scheduler.JobLocks,
       AlpacaTrader.Scheduler.Quantum,
+      {Registry, keys: :unique, name: AlpacaTrader.StrategyRunners},
+      AlpacaTrader.StrategySupervisor,
+      AlpacaTrader.StrategyRegistry,
       AlpacaTrader.MarketDataBus,
       AlpacaTraderWeb.Endpoint
     ]

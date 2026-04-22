@@ -61,6 +61,12 @@ defmodule AlpacaTrader.Application do
     Api.register_job(BarsSyncJob)
     Api.register_job(AlpacaTrader.Scheduler.Jobs.PairBuildJob)
     Api.register_job(AlpacaTrader.Scheduler.Jobs.PairRecointegrationJob)
+
+    # New Strategy-based scan. Off by default until STRATEGY_SCAN_ENABLED=true
+    # so existing deployments keep current behaviour unchanged.
+    if Application.get_env(:alpaca_trader, :strategy_scan_enabled, false) do
+      Api.register_job(AlpacaTrader.Scheduler.Jobs.StrategyScanJob)
+    end
   end
 
   @impl true

@@ -85,6 +85,16 @@ if config_env() == :prod do
 end
 
 if config_env() != :test do
+  # Broker registry — resolves venue atoms to concrete modules.
+  config :alpaca_trader, :brokers,
+    alpaca: AlpacaTrader.Brokers.Alpaca,
+    hyperliquid: AlpacaTrader.Brokers.Hyperliquid
+
+  config :alpaca_trader,
+    hyperliquid_env: System.get_env("HL_ENV", "mainnet") |> String.to_atom(),
+    hyperliquid_wallet_addr: System.get_env("HL_WALLET_ADDR"),
+    hyperliquid_api_key: System.get_env("HL_API_WALLET_KEY")
+
   config :alpaca_trader,
     alpaca_base_url: System.fetch_env!("ALPACA_BASE_URL"),
     # paper:  https://paper-api.alpaca.markets

@@ -27,6 +27,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.AltData.Supervisor,
       AlpacaTrader.Scheduler.JobLocks,
       AlpacaTrader.Scheduler.Quantum,
+      AlpacaTrader.MarketDataBus,
       AlpacaTraderWeb.Endpoint
     ]
 

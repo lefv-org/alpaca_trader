@@ -245,4 +245,14 @@ if config_env() != :test do
     # is unchanged. Intended for accounts that cannot short (e.g. Alpaca
     # crypto, small equity accounts). Default false for backward compat.
     long_only_mode: System.get_env("LONG_ONLY_MODE", "false") == "true"
+
+  config :alpaca_trader, :asset_proxies, %{
+    "BTC" => %{alpaca: "IBIT", beta: 1.0, quality: :high},
+    "ETH" => %{alpaca: "ETHA", beta: 1.0, quality: :high}
+  }
+
+  config :alpaca_trader, :strategies, [
+    {AlpacaTrader.Strategies.PairCointegration, %{}},
+    {AlpacaTrader.Strategies.FundingBasisArb, %{}}
+  ]
 end

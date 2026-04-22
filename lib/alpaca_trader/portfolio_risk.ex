@@ -29,6 +29,22 @@ defmodule AlpacaTrader.PortfolioRisk do
     end
   end
 
+  @doc """
+  Signal-shaped portfolio gate. Builds a synthetic arb-like map per leg
+  and reuses existing `allow_entry?/1`. Returns `:ok` or `{:blocked, reason}`.
+  """
+  def allow_entry_for_signal(%AlpacaTrader.Types.Signal{legs: legs}) do
+    Enum.reduce_while(legs, :ok, fn leg, _ ->
+      # TODO: full sector/cluster analysis requires a real pair; this synthetic
+      # map satisfies the existing `allow_entry?/1` shape for an MVP gate.
+      fake_arb = %{asset: leg.symbol, pair_asset: leg.symbol, direction: :long_a_short_b}
+      case allow_entry?(fake_arb) do
+        :ok -> {:cont, :ok}
+        {:blocked, reason} -> {:halt, {:blocked, reason}}
+      end
+    end)
+  end
+
   @doc "All currently-enforced limits as a map (for logging / ops)."
   def current_limits do
     %{

@@ -3,17 +3,17 @@ defmodule AlpacaTrader.Brokers.AlpacaTest do
   alias AlpacaTrader.Brokers.Alpaca
   alias AlpacaTrader.Types.Order
 
+  # Use the plug name already configured in config/test.exs
+  # ({Req.Test, AlpacaTrader.Alpaca.Client}) so we don't clobber
+  # other tests' stubs when running in the full suite.
+  @plug AlpacaTrader.Alpaca.Client
+
   setup do
-    Application.put_env(:alpaca_trader, :req_plug, {Req.Test, :alpaca})
-    Application.put_env(:alpaca_trader, :alpaca_base_url, "https://example.com")
-    Application.put_env(:alpaca_trader, :alpaca_key_id, "test-key")
-    Application.put_env(:alpaca_trader, :alpaca_secret_key, "test-secret")
-    on_exit(fn -> Application.delete_env(:alpaca_trader, :req_plug) end)
     :ok
   end
 
   test "positions/0 decodes Alpaca JSON into %Position{} list" do
-    Req.Test.stub(:alpaca, fn conn ->
+    Req.Test.stub(@plug, fn conn ->
       conn
       |> Plug.Conn.put_resp_header("content-type", "application/json")
       |> Req.Test.json([%{
@@ -30,7 +30,7 @@ defmodule AlpacaTrader.Brokers.AlpacaTest do
   end
 
   test "submit_order/2 converts %Order{} to Alpaca body and decodes response" do
-    Req.Test.stub(:alpaca, fn conn ->
+    Req.Test.stub(@plug, fn conn ->
       {:ok, body, conn} = Plug.Conn.read_body(conn)
       decoded = Jason.decode!(body)
       assert decoded["symbol"] == "AAPL"
@@ -49,7 +49,7 @@ defmodule AlpacaTrader.Brokers.AlpacaTest do
   end
 
   test "account/0 decodes Alpaca account JSON" do
-    Req.Test.stub(:alpaca, fn conn ->
+    Req.Test.stub(@plug, fn conn ->
       Req.Test.json(conn, %{
         "equity" => "10000", "cash" => "8000", "buying_power" => "20000",
         "daytrade_count" => "2", "pattern_day_trader" => false, "currency" => "USD"

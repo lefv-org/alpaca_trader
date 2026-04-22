@@ -170,6 +170,11 @@ if config_env() != :test do
     stop_z_threshold: String.to_float(System.get_env("STOP_Z_THRESHOLD", "4.0")),
     # Pair cointegration gate (ADF + half-life + Hurst)
     pair_cointegration_gate: System.get_env("PAIR_COINTEGRATION_GATE", "true") == "true",
+    # New strategy-scan job (StrategyRegistry + OrderRouter). Off by default.
+    strategy_scan_enabled: System.get_env("STRATEGY_SCAN_ENABLED", "false") == "true",
+    trading_enabled: System.get_env("TRADING_ENABLED", "false") == "true",
+    primary_equity_venue:
+      System.get_env("PRIMARY_EQUITY_VENUE", "alpaca") |> String.to_atom(),
     pair_max_half_life_bars: String.to_integer(System.get_env("PAIR_MAX_HALF_LIFE_BARS", "60")),
     pair_max_hurst: String.to_float(System.get_env("PAIR_MAX_HURST", "0.75")),
     # Hedge ratio mode: :ols (static) or :kalman (dynamic)
@@ -245,4 +250,14 @@ if config_env() != :test do
     # is unchanged. Intended for accounts that cannot short (e.g. Alpaca
     # crypto, small equity accounts). Default false for backward compat.
     long_only_mode: System.get_env("LONG_ONLY_MODE", "false") == "true"
+
+  config :alpaca_trader, :asset_proxies, %{
+    "BTC" => %{alpaca: "IBIT", beta: 1.0, quality: :high},
+    "ETH" => %{alpaca: "ETHA", beta: 1.0, quality: :high}
+  }
+
+  config :alpaca_trader, :strategies, [
+    {AlpacaTrader.Strategies.PairCointegration, %{}},
+    {AlpacaTrader.Strategies.FundingBasisArb, %{}}
+  ]
 end

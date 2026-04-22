@@ -63,7 +63,10 @@ defmodule AlpacaTrader.MixProject do
       {:bandit, "~> 1.5"},
       {:req, "~> 0.5"},
       {:quantum, "~> 3.5"},
-      {:decimal, "~> 2.0"}
+      {:decimal, "~> 2.0"},
+      {:gen_stage, "~> 1.2"},
+      {:mox, "~> 1.1", only: :test},
+      {:stream_data, "~> 1.0", only: :test}
     ]
   end
 

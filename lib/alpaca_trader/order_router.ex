@@ -168,7 +168,7 @@ defmodule AlpacaTrader.OrderRouter do
 
   # ── shadow log ─────────────────────────────────────
 
-  defp log_outcome(sig, type, extra \\ %{}) do
+  defp log_outcome(sig, type, extra) do
     extra_map = if is_map(extra), do: extra, else: %{gate_reason: inspect(extra)}
 
     payload =

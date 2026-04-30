@@ -69,7 +69,8 @@ defmodule AlpacaTrader.AltData.Quiver.Client do
         {"accept", "application/json"}
       ],
       receive_timeout: timeout,
-      connect_options: [timeout: 5_000]
+      connect_options: [timeout: 5_000],
+      retry: false
     ]
 
     case Application.get_env(:alpaca_trader, :quiver_req_plug) do

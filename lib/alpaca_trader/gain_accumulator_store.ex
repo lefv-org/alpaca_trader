@@ -104,10 +104,16 @@ defmodule AlpacaTrader.GainAccumulatorStore do
   defp check_gain(%{principal: principal} = state, equity) do
     notional_pct = to_decimal(Application.get_env(:alpaca_trader, :order_notional_pct, 0.001))
     fee_rate = to_decimal(Application.get_env(:alpaca_trader, :trade_fee_rate, 0.003))
-    one_pct = Decimal.from_float(0.01)
+
+    # Tolerance floor as a fraction of one-trade-notional. Was 1% which
+    # produced ~5¢ tolerance on a $100 account — blocks entries after
+    # one round-trip's worth of fees. 20% gives ~$1 of session-loss
+    # headroom (≈ 6 round-trips at 0.30%) before blocking.
+    floor_pct =
+      to_decimal(Application.get_env(:alpaca_trader, :gain_accumulator_floor_pct, 0.20))
 
     base = Decimal.mult(equity, notional_pct)
-    min_tolerance = Decimal.mult(base, one_pct)
+    min_tolerance = Decimal.mult(base, floor_pct)
     fee_tolerance = Decimal.max(Decimal.mult(base, fee_rate), min_tolerance)
 
     gain = Decimal.sub(equity, principal)

@@ -112,6 +112,31 @@ defmodule AlpacaTrader.Engine do
     end
   end
 
+  # Convert Alpaca's compact crypto symbol back to PairPositionStore form.
+  # E.g. "SOLUSD" -> "SOL/USD", "BTCUSDT" -> "BTC/USDT".
+  defp restore_crypto_slash(s) when is_binary(s) do
+    cond do
+      String.ends_with?(s, "USDT") ->
+        base = String.slice(s, 0, byte_size(s) - 4)
+        "#{base}/USDT"
+
+      String.ends_with?(s, "USDC") ->
+        base = String.slice(s, 0, byte_size(s) - 4)
+        "#{base}/USDC"
+
+      String.ends_with?(s, "USD") ->
+        base = String.slice(s, 0, byte_size(s) - 3)
+        "#{base}/USD"
+
+      String.ends_with?(s, "BTC") ->
+        base = String.slice(s, 0, byte_size(s) - 3)
+        "#{base}/BTC"
+
+      true ->
+        s
+    end
+  end
+
   defp long_leg_of_pos?(%{asset_a: a, direction: :long_a_short_b}, asset), do: a == asset
   defp long_leg_of_pos?(%{asset_b: b, direction: :long_b_short_a}, asset), do: b == asset
   defp long_leg_of_pos?(_, _), do: true
@@ -693,7 +718,11 @@ defmodule AlpacaTrader.Engine do
         {:ok, order} ->
           Logger.info("[Reaper] ✅ closed #{symbol} status=#{order["status"]}")
 
-          case PairPositionStore.find_open_for_asset(symbol) do
+          # Alpaca returns crypto symbols without the slash (e.g. "SOLUSD"
+          # for "SOL/USD"). PairPositionStore tracks them with the slash,
+          # so try both forms before giving up.
+          case PairPositionStore.find_open_for_asset(symbol) ||
+                 PairPositionStore.find_open_for_asset(restore_crypto_slash(symbol)) do
             %PairPositionStore.PairPosition{id: id} -> PairPositionStore.close_position(id)
             _ -> :ok
           end

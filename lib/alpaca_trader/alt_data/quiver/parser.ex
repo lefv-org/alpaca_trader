@@ -20,25 +20,29 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
     end)
   end
 
-  defp normalize_congress_row(
-         %{"Ticker" => t, "Transaction" => txn, "TransactionDate" => date_str} = row
-       )
-       when is_binary(t) and t != "" and is_binary(date_str) do
-    case Date.from_iso8601(date_str) do
-      {:ok, d} ->
-        [
-          %{
-            ticker: String.upcase(t),
-            txn_kind: classify_congress_txn(txn),
-            txn_dt: DateTime.new!(d, ~T[00:00:00], "Etc/UTC"),
-            range: row["Range"],
-            rep: row["Representative"],
-            house: row["House"]
-          }
-        ]
+  defp normalize_congress_row(%{"Ticker" => t, "Transaction" => txn} = row)
+       when is_binary(t) and t != "" do
+    date_str = row["Traded"] || row["TransactionDate"]
 
-      _ ->
-        []
+    if is_binary(date_str) do
+      case Date.from_iso8601(date_str) do
+        {:ok, d} ->
+          [
+            %{
+              ticker: String.upcase(t),
+              txn_kind: classify_congress_txn(txn),
+              txn_dt: DateTime.new!(d, ~T[00:00:00], "Etc/UTC"),
+              range: row["Trade_Size_USD"] || row["Range"],
+              rep: row["Name"] || row["Representative"],
+              house: row["Chamber"] || row["House"]
+            }
+          ]
+
+        _ ->
+          []
+      end
+    else
+      []
     end
   end
 
@@ -90,17 +94,14 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
     |> Enum.map(fn {ticker, group} -> build_insider_signal(ticker, group, now, lookback_days) end)
   end
 
-  defp normalize_insider_row(
-         %{
-           "Ticker" => t,
-           "Code" => code,
-           "Shares" => sh,
-           "PricePerShare" => pps,
-           "Date" => date_str
-         } = row
-       )
-       when is_binary(t) and t != "" and code in ["P", "S"] and is_binary(date_str) do
-    with {:ok, d} <- Date.from_iso8601(date_str),
+  defp normalize_insider_row(%{"Ticker" => t, "Shares" => sh, "PricePerShare" => pps} = row)
+       when is_binary(t) and t != "" do
+    code = row["TransactionCode"] || row["Code"]
+    date_str = row["Date"]
+
+    with true <- code in ["P", "S"],
+         true <- is_binary(date_str),
+         {:ok, d} <- parse_iso_date_prefix(date_str),
          {shares, _} <- Float.parse(to_string(sh)),
          {price, _} <- Float.parse(to_string(pps)) do
       [
@@ -118,6 +119,10 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
   end
 
   defp normalize_insider_row(_), do: []
+
+  defp parse_iso_date_prefix(s) when is_binary(s) do
+    s |> String.slice(0, 10) |> Date.from_iso8601()
+  end
 
   defp build_insider_signal(ticker, group, now, lookback_days) do
     net_dollars = group |> Enum.map(& &1.dollars) |> Enum.sum()
@@ -237,18 +242,31 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
     |> Enum.map(fn {ticker, group} -> build_lobbying_signal(ticker, group, now) end)
   end
 
-  defp normalize_lobbying_row(%{"Ticker" => t, "Amount" => amt, "Year" => yr, "Quarter" => q})
-       when is_binary(t) and t != "" and is_integer(yr) and is_integer(q) do
-    case Float.parse(to_string(amt)) do
-      {amount, _} ->
-        [%{ticker: String.upcase(t), amount: amount, year: yr, quarter: q}]
+  defp normalize_lobbying_row(%{"Ticker" => t, "Amount" => amt} = row)
+       when is_binary(t) and t != "" do
+    {yr, q} = extract_year_quarter(row)
 
-      _ ->
-        []
+    with true <- is_integer(yr) and is_integer(q),
+         {amount, _} <- Float.parse(to_string(amt)) do
+      [%{ticker: String.upcase(t), amount: amount, year: yr, quarter: q}]
+    else
+      _ -> []
     end
   end
 
   defp normalize_lobbying_row(_), do: []
+
+  defp extract_year_quarter(%{"Year" => y, "Quarter" => q}) when is_integer(y) and is_integer(q),
+    do: {y, q}
+
+  defp extract_year_quarter(%{"Date" => date_str}) when is_binary(date_str) do
+    case Date.from_iso8601(date_str) do
+      {:ok, d} -> {d.year, div(d.month - 1, 3) + 1}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp extract_year_quarter(_), do: {nil, nil}
 
   defp build_lobbying_signal(ticker, group, now) do
     {latest_year, latest_quarter} =

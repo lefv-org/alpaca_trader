@@ -252,7 +252,7 @@ if config_env() != :test do
     # QuiverQuant alt-data feeds
     quiverquant_api_key: System.get_env("QUIVERQUANT_API_KEY"),
     quiver_base_url: System.get_env("QUIVER_BASE_URL", "https://api.quiverquant.com/beta"),
-    quiver_timeout_ms: String.to_integer(System.get_env("QUIVER_TIMEOUT_MS", "15000")),
+    quiver_timeout_ms: String.to_integer(System.get_env("QUIVER_TIMEOUT_MS", "60000")),
     quiver_congress_enabled: System.get_env("QUIVER_CONGRESS_ENABLED", "false") == "true",
     quiver_insider_enabled: System.get_env("QUIVER_INSIDER_ENABLED", "false") == "true",
     quiver_govcontracts_enabled: System.get_env("QUIVER_GOVCONTRACTS_ENABLED", "false") == "true",

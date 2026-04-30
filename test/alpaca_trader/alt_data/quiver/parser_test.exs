@@ -14,10 +14,13 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
       {:ok, rows: load_fixture("congress"), now: now}
     end
 
-    test "groups by ticker within lookback window and emits one signal per group", %{rows: rows, now: now} do
+    test "groups by ticker within lookback window and emits one signal per group", %{
+      rows: rows,
+      now: now
+    } do
       signals = Parser.parse_congress(rows, now, 14)
 
-      tickers = Enum.map(signals, & hd(&1.affected_symbols)) |> Enum.sort()
+      tickers = Enum.map(signals, &hd(&1.affected_symbols)) |> Enum.sort()
       assert tickers == ["BA", "NVDA"]
       # AAPL filing is older than 14d lookback (~60d) and must be filtered out.
       refute Enum.any?(signals, fn s -> "AAPL" in s.affected_symbols end)
@@ -53,7 +56,18 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
 
     test "returns [] when input is empty or all rows are stale", %{now: now} do
       assert Parser.parse_congress([], now, 14) == []
-      assert Parser.parse_congress([%{"Ticker" => "X", "Transaction" => "Purchase", "TransactionDate" => "2020-01-01"}], now, 14) == []
+
+      assert Parser.parse_congress(
+               [
+                 %{
+                   "Ticker" => "X",
+                   "Transaction" => "Purchase",
+                   "TransactionDate" => "2020-01-01"
+                 }
+               ],
+               now,
+               14
+             ) == []
     end
 
     test "skips rows with missing ticker or unparseable date", %{now: now} do
@@ -61,7 +75,64 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
         %{"Ticker" => nil, "Transaction" => "Purchase", "TransactionDate" => "2026-04-22"},
         %{"Ticker" => "X", "Transaction" => "Purchase", "TransactionDate" => "not-a-date"}
       ]
+
       assert Parser.parse_congress(junk, now, 14) == []
+    end
+  end
+
+  describe "parse_insider/3" do
+    setup do
+      now = ~U[2026-04-30 12:00:00Z]
+      {:ok, rows: load_fixture("insider"), now: now}
+    end
+
+    test "skips rows outside lookback window", %{rows: rows, now: now} do
+      signals = Parser.parse_insider(rows, now, 30)
+      tickers = Enum.flat_map(signals, & &1.affected_symbols) |> Enum.sort()
+      assert tickers == ["AAPL", "BA"]
+    end
+
+    test "tags cluster when 2+ insiders buy same ticker", %{rows: rows, now: now} do
+      [aapl] = Enum.filter(Parser.parse_insider(rows, now, 30), &("AAPL" in &1.affected_symbols))
+      assert aapl.direction == :bullish
+      assert aapl.signal_type == :insider_buy_cluster
+      # Net = 5000*180 + 3000*180 = 1_440_000; cluster threshold 500_000
+      # strength = min(1.0, 1_440_000 / 500_000) = 1.0
+      assert_in_delta aapl.strength, 1.0, 0.001
+    end
+
+    test "single insider sale uses :insider_trade and 1M threshold", %{now: now} do
+      rows = [
+        %{
+          "Ticker" => "X",
+          "Name" => "P1",
+          "Code" => "S",
+          "Shares" => "1000",
+          "PricePerShare" => "300.00",
+          "Date" => "2026-04-25"
+        }
+      ]
+
+      [s] = Parser.parse_insider(rows, now, 30)
+      assert s.direction == :bearish
+      assert s.signal_type == :insider_trade
+      # Net = -300_000; threshold 1_000_000; strength = 0.3
+      assert_in_delta s.strength, 0.3, 0.001
+    end
+
+    test "skips rows with non-P/S codes", %{now: now} do
+      rows = [
+        %{
+          "Ticker" => "X",
+          "Name" => "P1",
+          "Code" => "G",
+          "Shares" => "100",
+          "PricePerShare" => "10",
+          "Date" => "2026-04-25"
+        }
+      ]
+
+      assert Parser.parse_insider(rows, now, 30) == []
     end
   end
 end

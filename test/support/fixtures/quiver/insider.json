@@ -1,0 +1,6 @@
+[
+  {"Ticker":"AAPL","Name":"Tim Cook","Code":"P","Shares":"5000","PricePerShare":"180.00","Date":"2026-04-22"},
+  {"Ticker":"AAPL","Name":"Luca Maestri","Code":"P","Shares":"3000","PricePerShare":"180.00","Date":"2026-04-23"},
+  {"Ticker":"BA","Name":"David Calhoun","Code":"S","Shares":"10000","PricePerShare":"200.00","Date":"2026-04-20"},
+  {"Ticker":"OLD","Name":"Anyone","Code":"P","Shares":"100","PricePerShare":"10.00","Date":"2025-01-01"}
+]

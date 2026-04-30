@@ -173,8 +173,7 @@ if config_env() != :test do
     # New strategy-scan job (StrategyRegistry + OrderRouter). Off by default.
     strategy_scan_enabled: System.get_env("STRATEGY_SCAN_ENABLED", "false") == "true",
     trading_enabled: System.get_env("TRADING_ENABLED", "false") == "true",
-    primary_equity_venue:
-      System.get_env("PRIMARY_EQUITY_VENUE", "alpaca") |> String.to_atom(),
+    primary_equity_venue: System.get_env("PRIMARY_EQUITY_VENUE", "alpaca") |> String.to_atom(),
     pair_max_half_life_bars: String.to_integer(System.get_env("PAIR_MAX_HALF_LIFE_BARS", "60")),
     pair_max_hurst: String.to_float(System.get_env("PAIR_MAX_HURST", "0.75")),
     # Hedge ratio mode: :ols (static) or :kalman (dynamic)
@@ -249,7 +248,28 @@ if config_env() != :test do
     # dropped. Pair *selection* (cointegration, whitelist, regime filter)
     # is unchanged. Intended for accounts that cannot short (e.g. Alpaca
     # crypto, small equity accounts). Default false for backward compat.
-    long_only_mode: System.get_env("LONG_ONLY_MODE", "false") == "true"
+    long_only_mode: System.get_env("LONG_ONLY_MODE", "false") == "true",
+    # QuiverQuant alt-data feeds
+    quiverquant_api_key: System.get_env("QUIVERQUANT_API_KEY"),
+    quiver_base_url: System.get_env("QUIVER_BASE_URL", "https://api.quiverquant.com/beta"),
+    quiver_timeout_ms: String.to_integer(System.get_env("QUIVER_TIMEOUT_MS", "15000")),
+    quiver_congress_enabled: System.get_env("QUIVER_CONGRESS_ENABLED", "false") == "true",
+    quiver_insider_enabled: System.get_env("QUIVER_INSIDER_ENABLED", "false") == "true",
+    quiver_govcontracts_enabled: System.get_env("QUIVER_GOVCONTRACTS_ENABLED", "false") == "true",
+    quiver_lobbying_enabled: System.get_env("QUIVER_LOBBYING_ENABLED", "false") == "true",
+    quiver_wsb_enabled: System.get_env("QUIVER_WSB_ENABLED", "false") == "true",
+    quiver_congress_poll_s: String.to_integer(System.get_env("QUIVER_CONGRESS_POLL_S", "1800")),
+    quiver_insider_poll_s: String.to_integer(System.get_env("QUIVER_INSIDER_POLL_S", "900")),
+    quiver_govcontracts_poll_s:
+      String.to_integer(System.get_env("QUIVER_GOVCONTRACTS_POLL_S", "10800")),
+    quiver_lobbying_poll_s: String.to_integer(System.get_env("QUIVER_LOBBYING_POLL_S", "43200")),
+    quiver_wsb_poll_s: String.to_integer(System.get_env("QUIVER_WSB_POLL_S", "450")),
+    quiver_congress_lookback_d:
+      String.to_integer(System.get_env("QUIVER_CONGRESS_LOOKBACK_D", "14")),
+    quiver_insider_lookback_d:
+      String.to_integer(System.get_env("QUIVER_INSIDER_LOOKBACK_D", "30")),
+    quiver_govcontracts_lookback_d:
+      String.to_integer(System.get_env("QUIVER_GOVCONTRACTS_LOOKBACK_D", "30"))
 
   config :alpaca_trader, :asset_proxies, %{
     "BTC" => %{alpaca: "IBIT", beta: 1.0, quality: :high},

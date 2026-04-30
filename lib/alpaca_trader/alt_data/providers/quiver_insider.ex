@@ -37,4 +37,11 @@ defmodule AlpacaTrader.AltData.Providers.QuiverInsider do
         end
     end
   end
+
+  @impl GenServer
+  def init(_) do
+    jitter_ms = :rand.uniform(max(1, div(poll_interval_ms(), 4)))
+    Process.send_after(self(), :poll, jitter_ms)
+    {:ok, %{consecutive_errors: 0}}
+  end
 end

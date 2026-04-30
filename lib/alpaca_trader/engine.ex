@@ -1553,7 +1553,13 @@ defmodule AlpacaTrader.Engine do
     # store-level dedup prevents duplicate records but the scanner still
     # emits identical signals every cycle, causing the same symbol to be
     # bought 8+ times. Skip them here so they never reach the cap.
-    deduped_hits = Enum.reject(raw_hits, &entry_for_already_held?/1)
+    store_filtered = Enum.reject(raw_hits, &entry_for_already_held?/1)
+
+    # Within-batch long-leg dedup. Multiple discovery signals on the same
+    # scan can target the same long leg (e.g. 3 different pairs all buying
+    # LINK). Without this, all 3 fire because the store-level filter
+    # checks state BEFORE any entry executes. Keep highest-priority one.
+    deduped_hits = dedup_by_long_leg(store_filtered)
 
     dropped = length(raw_hits) - length(deduped_hits)
 
@@ -1587,6 +1593,37 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp entry_for_already_held?(_), do: false
+
+  # Within-batch long-leg dedup. Keeps the highest-|z|-score entry per
+  # long leg + non-:enter actions untouched.
+  defp dedup_by_long_leg(hits) do
+    {entries, others} = Enum.split_with(hits, &(&1.action == :enter))
+
+    deduped =
+      entries
+      |> Enum.group_by(&long_leg_for/1)
+      |> Enum.map(fn
+        {nil, [first | _]} ->
+          first
+
+        {_long_leg, group} ->
+          Enum.max_by(group, &entry_priority/1)
+      end)
+      |> Enum.flat_map(fn arb -> [arb] end)
+
+    others ++ deduped
+  end
+
+  defp long_leg_for(%{asset: a, pair_asset: b, direction: :long_a_short_b})
+       when is_binary(a) and is_binary(b),
+       do: a
+
+  defp long_leg_for(%{asset: a, pair_asset: b, direction: :long_b_short_a})
+       when is_binary(a) and is_binary(b),
+       do: b
+
+  defp long_leg_for(%{asset: a}) when is_binary(a), do: a
+  defp long_leg_for(_), do: nil
 
   defp discover_new_pairs do
     scanner_hits =

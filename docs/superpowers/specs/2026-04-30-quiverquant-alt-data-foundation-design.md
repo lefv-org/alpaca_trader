@@ -147,10 +147,14 @@ All providers produce `AltData.Signal` records. Mapping rules per feed:
 
 **Failure semantics**
 
-- Provider catches `{:error, _}`, logs, and **does not** clear `SignalStore`.
-  Stale signals continue to expire via TTL. Prevents flapping when API blips.
-- 401 / 403 is logged once per provider startup; provider then becomes inert
-  (subsequent ticks no-op until restart).
+- The shared `AltData.Provider` macro only writes to `SignalStore` on
+  `{:ok, signals}`; on `{:error, _}` it logs and bumps `consecutive_errors`,
+  applying exponential backoff up to a 30-minute ceiling. Stale signals
+  continue to expire via TTL. Prevents flapping when API blips.
+- 401 / 403 is logged once per request by `Quiver.Client` and bubbles up as
+  `{:error, :unauthorized | :forbidden}`. Sustained auth failure puts that
+  provider near the 30-min backoff ceiling — effectively inert without
+  needing a separate state machine.
 
 **Rate limits** — Quiver beta paid tier is ~300 req/min. Worst-case load is
 five bulk requests per WSB poll cycle (450 s), nowhere near the cap. No
@@ -239,8 +243,9 @@ local smoke against real key.
    the new supervisor integration test.
 2. With `_ENABLED=false` (default), zero new processes start; existing tests
    remain green; no behaviour change to engine or strategies.
-3. With invalid key, providers log permission denied once and become inert;
-   other alt-data providers remain healthy.
+3. With invalid key, providers log permission denied per attempt, back off via
+   the shared macro's exponential schedule (capped at 30 min), and do not
+   poison the store; other alt-data providers remain healthy.
 4. `SignalStore.status/0` reflects the five new providers when enabled, with
    non-zero signal counts after first poll.
 5. No new compiler warnings, no Credo regressions.

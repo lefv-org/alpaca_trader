@@ -818,7 +818,7 @@ defmodule AlpacaTrader.AltData.Providers.QuiverInsider do
       _ ->
         lookback = Application.get_env(:alpaca_trader, :quiver_insider_lookback_d, 30)
 
-        case Client.get("/beta/live/insiders") do
+        case Client.get("/live/insiders") do
           {:ok, rows} when is_list(rows) ->
             {:ok, Parser.parse_insider(rows, DateTime.utc_now(), lookback)}
 
@@ -1046,7 +1046,7 @@ defmodule AlpacaTrader.AltData.Providers.QuiverGovContracts do
       _ ->
         lookback = Application.get_env(:alpaca_trader, :quiver_govcontracts_lookback_d, 30)
 
-        case Client.get("/beta/live/govcontractsall") do
+        case Client.get("/live/govcontractsall") do
           {:ok, rows} when is_list(rows) ->
             {:ok, Parser.parse_govcontracts(rows, DateTime.utc_now(), lookback)}
 
@@ -1265,7 +1265,7 @@ defmodule AlpacaTrader.AltData.Providers.QuiverLobbying do
       nil -> {:ok, []}
       "" -> {:ok, []}
       _ ->
-        case Client.get("/beta/live/lobbying") do
+        case Client.get("/live/lobbying") do
           {:ok, rows} when is_list(rows) ->
             {:ok, Parser.parse_lobbying(rows, DateTime.utc_now())}
 
@@ -1501,7 +1501,7 @@ defmodule AlpacaTrader.AltData.Providers.QuiverWsb do
       nil -> {:ok, []}
       "" -> {:ok, []}
       _ ->
-        case Client.get("/beta/live/wallstreetbets") do
+        case Client.get("/live/wallstreetbets") do
           {:ok, rows} when is_list(rows) ->
             {:ok, Parser.parse_wsb(rows, DateTime.utc_now())}
 

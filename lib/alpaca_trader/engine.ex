@@ -1564,9 +1564,22 @@ defmodule AlpacaTrader.Engine do
     {length(results) + length(discovery_hits), deduped_hits}
   end
 
-  defp entry_for_already_held?(%{action: :enter, asset: a, pair_asset: b})
+  defp entry_for_already_held?(%{action: :enter, asset: a, pair_asset: b, direction: dir})
        when is_binary(a) and is_binary(b) do
-    PairPositionStore.find_open_for_pair(a, b) != nil
+    # Pair already open (order-insensitive) → skip.
+    # Or the actual LONG LEG (the only side that gets bought in long-only
+    # mode) already has any open position → skip. Multiple pair signals
+    # (e.g. LINK↔UNI long_a, UNI/BTC↔LINK long_b) all buy the same long
+    # leg — without this check the bot buys LINK 3× per scan cycle.
+    long_leg =
+      case dir do
+        :long_a_short_b -> a
+        :long_b_short_a -> b
+        _ -> a
+      end
+
+    PairPositionStore.find_open_for_pair(a, b) != nil or
+      PairPositionStore.find_open_for_asset(long_leg) != nil
   end
 
   defp entry_for_already_held?(%{action: :enter, asset: a}) when is_binary(a) do

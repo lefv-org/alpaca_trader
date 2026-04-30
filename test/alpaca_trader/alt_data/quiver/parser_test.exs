@@ -73,7 +73,8 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
     test "skips rows with missing ticker or unparseable date", %{now: now} do
       junk = [
         %{"Ticker" => nil, "Transaction" => "Purchase", "TransactionDate" => "2026-04-22"},
-        %{"Ticker" => "X", "Transaction" => "Purchase", "TransactionDate" => "not-a-date"}
+        %{"Ticker" => "X", "Transaction" => "Purchase", "TransactionDate" => "not-a-date"},
+        %{"Ticker" => "Z", "Transaction" => "Purchase", "TransactionDate" => nil}
       ]
 
       assert Parser.parse_congress(junk, now, 14) == []
@@ -129,6 +130,46 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
           "Shares" => "100",
           "PricePerShare" => "10",
           "Date" => "2026-04-25"
+        }
+      ]
+
+      assert Parser.parse_insider(rows, now, 30) == []
+    end
+
+    test "net_dollars == 0 emits :neutral with strength 0", %{now: now} do
+      rows = [
+        %{
+          "Ticker" => "X",
+          "Name" => "P1",
+          "Code" => "P",
+          "Shares" => "1000",
+          "PricePerShare" => "100.00",
+          "Date" => "2026-04-25"
+        },
+        %{
+          "Ticker" => "X",
+          "Name" => "P2",
+          "Code" => "S",
+          "Shares" => "1000",
+          "PricePerShare" => "100.00",
+          "Date" => "2026-04-25"
+        }
+      ]
+
+      [s] = Parser.parse_insider(rows, now, 30)
+      assert s.direction == :neutral
+      assert_in_delta s.strength, 0.0, 0.001
+    end
+
+    test "skips rows with nil date", %{now: now} do
+      rows = [
+        %{
+          "Ticker" => "X",
+          "Name" => "P1",
+          "Code" => "P",
+          "Shares" => "1000",
+          "PricePerShare" => "100.00",
+          "Date" => nil
         }
       ]
 

@@ -23,7 +23,7 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
   defp normalize_congress_row(
          %{"Ticker" => t, "Transaction" => txn, "TransactionDate" => date_str} = row
        )
-       when is_binary(t) and t != "" do
+       when is_binary(t) and t != "" and is_binary(date_str) do
     case Date.from_iso8601(date_str) do
       {:ok, d} ->
         [
@@ -99,7 +99,7 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
            "Date" => date_str
          } = row
        )
-       when is_binary(t) and t != "" and code in ["P", "S"] do
+       when is_binary(t) and t != "" and code in ["P", "S"] and is_binary(date_str) do
     with {:ok, d} <- Date.from_iso8601(date_str),
          {shares, _} <- Float.parse(to_string(sh)),
          {price, _} <- Float.parse(to_string(pps)) do
@@ -121,7 +121,13 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
 
   defp build_insider_signal(ticker, group, now, lookback_days) do
     net_dollars = group |> Enum.map(& &1.dollars) |> Enum.sum()
-    direction = if net_dollars >= 0, do: :bullish, else: :bearish
+
+    direction =
+      cond do
+        net_dollars > 0 -> :bullish
+        net_dollars < 0 -> :bearish
+        true -> :neutral
+      end
 
     {cluster?, signal_type} =
       case classify_insider_cluster(group, direction) do

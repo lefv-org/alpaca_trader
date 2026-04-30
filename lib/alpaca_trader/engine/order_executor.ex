@@ -111,11 +111,22 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         )
 
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
-        # Tier 2/3 long-only-mode pair exits sometimes target the leg that
-        # was never bought (when direction was inverted vs. what was actually
-        # held). Drop silently rather than holding — the actual long leg's
-        # exit, if any, will arrive via a subsequent scan iteration.
-        Logger.debug("[Trade] ⏸ HOLD #{ctx.symbol}: nothing held to sell (long-only)")
+        # Long-only pair exit with nothing held: real broker exposure is 0
+        # but PairPositionStore may still track an "open" record (from a
+        # prior reaper close that didn't sync, or a pending buy that was
+        # rejected post-tracking). Sync the store closed so the next scan
+        # doesn't keep firing dead exit signals indefinitely.
+        case AlpacaTrader.PairPositionStore.find_open_for_asset(ctx.symbol) do
+          %AlpacaTrader.PairPositionStore.PairPosition{id: id} ->
+            AlpacaTrader.PairPositionStore.close_position(id)
+
+            Logger.info(
+              "[Trade] ⏸ HOLD #{ctx.symbol}: store record synced closed (no held qty)"
+            )
+
+          _ ->
+            Logger.debug("[Trade] ⏸ HOLD #{ctx.symbol}: nothing held to sell (long-only)")
+        end
 
         {:ok,
          %PurchaseContext{

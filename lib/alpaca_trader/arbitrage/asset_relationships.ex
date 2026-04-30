@@ -81,17 +81,30 @@ defmodule AlpacaTrader.Arbitrage.AssetRelationships do
 
   # ── ALL SUBSTITUTES ────────────────────────────────────────
 
-  @substitute_pairs @meme_pairs ++
-                      @l1_pairs ++
-                      @btc_pairs ++
-                      @defi_pairs ++
-                      @stablecoin_pairs ++
-                      @equity_pairs ++
-                      @cross_asset_pairs
+  # Stablecoin pairs (USD↔USDT, USD↔USDC) require USDT/USDC inventory which
+  # an Alpaca USD-cash account doesn't hold; the buy leg of any such pair
+  # rejects with `insufficient balance`. Gate inclusion behind an env flag —
+  # off by default — and re-enable when running on a venue that holds the
+  # quote currency (Hyperliquid, KuCoin, etc.).
+  defp stablecoin_pairs_active do
+    if Application.get_env(:alpaca_trader, :enable_stablecoin_pairs, false),
+      do: @stablecoin_pairs,
+      else: []
+  end
+
+  defp substitute_pairs_dynamic do
+    @meme_pairs ++
+      @l1_pairs ++
+      @btc_pairs ++
+      @defi_pairs ++
+      stablecoin_pairs_active() ++
+      @equity_pairs ++
+      @cross_asset_pairs
+  end
 
   # ── PUBLIC API ─────────────────────────────────────────────
 
-  def substitute_pairs, do: @substitute_pairs
+  def substitute_pairs, do: substitute_pairs_dynamic()
   def complement_pairs, do: @complement_pairs
   def meme_pairs, do: @meme_pairs
   def l1_pairs, do: @l1_pairs
@@ -99,13 +112,13 @@ defmodule AlpacaTrader.Arbitrage.AssetRelationships do
   def defi_pairs, do: @defi_pairs
 
   def all_symbols do
-    (@substitute_pairs ++ @complement_pairs)
+    (substitute_pairs_dynamic() ++ @complement_pairs)
     |> Enum.flat_map(fn {a, b} -> [a, b] end)
     |> Enum.uniq()
   end
 
   def substitutes_for(symbol) do
-    @substitute_pairs
+    substitute_pairs_dynamic()
     |> Enum.flat_map(fn
       {^symbol, other} -> [other]
       {other, ^symbol} -> [other]

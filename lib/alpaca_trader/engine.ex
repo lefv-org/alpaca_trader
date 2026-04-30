@@ -542,14 +542,25 @@ defmodule AlpacaTrader.Engine do
 
     {entries, manage} = Enum.split_with(hits, &(&1.action == :enter))
 
+    # Drop entries that the cheap pre-flight gates would refuse anyway
+    # (PDT, orphan-blocked symbols). Otherwise the cap fills with doomed
+    # equity candidates while real (crypto) opportunities never get a slot.
+    tradeable_entries = Enum.reject(entries, &cheap_skip_entry?(ctx, &1))
+
     capped_entries =
-      entries
+      tradeable_entries
       |> Enum.sort_by(&entry_priority/1, :desc)
       |> Enum.take(max_entries)
 
-    if length(entries) > max_entries do
+    dropped = length(entries) - length(tradeable_entries)
+
+    if dropped > 0 do
+      Logger.info("[Engine] dropped #{dropped} entries via cheap pre-flight (PDT/orphan)")
+    end
+
+    if length(tradeable_entries) > max_entries do
       Logger.info(
-        "[Engine] capping entries: #{length(entries)} candidates → #{max_entries} (top by priority)"
+        "[Engine] capping entries: #{length(tradeable_entries)} candidates → #{max_entries} (top by priority)"
       )
     end
 
@@ -864,6 +875,11 @@ defmodule AlpacaTrader.Engine do
     spread = if is_number(arb.spread), do: abs(arb.spread), else: 0.0
     {tier_score, z_score, spread}
   end
+
+  # Cheap, deterministic skip for entries the gates will reject anyway.
+  # Used to drop candidates BEFORE the per-scan cap so doomed entries don't
+  # crowd out tradeable ones. Mirrors the early branches of `gate_and_enter`.
+  defp cheap_skip_entry?(ctx, arb), do: pdt_blocks_equity?(ctx, arb)
 
   # PDT (Pattern Day Trader) protection: an Alpaca account with equity
   # < $25k that day-trades 4 times in 5 days gets frozen. Bot strategies

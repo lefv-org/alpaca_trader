@@ -97,12 +97,24 @@ defmodule AlpacaTrader.Engine do
 
     case existing do
       %PairPositionStore.PairPosition{} = pos ->
-        check_exit_conditions(ctx, pos, asset, related)
+        # In long-only mode, only the LONG leg's scan should drive exits.
+        # When the asset being scanned is the SHORT leg, return no-op so
+        # we don't try to sell something we never bought.
+        if Application.get_env(:alpaca_trader, :long_only_mode, false) and
+             not long_leg_of_pos?(pos, asset) do
+          {:ok, %ArbitragePosition{result: false}}
+        else
+          check_exit_conditions(ctx, pos, asset, related)
+        end
 
       nil ->
         check_entry_conditions(ctx, asset, related)
     end
   end
+
+  defp long_leg_of_pos?(%{asset_a: a, direction: :long_a_short_b}, asset), do: a == asset
+  defp long_leg_of_pos?(%{asset_b: b, direction: :long_b_short_a}, asset), do: b == asset
+  defp long_leg_of_pos?(_, _), do: true
 
   # ── EXIT CONDITIONS ────────────────────────────────────────
 

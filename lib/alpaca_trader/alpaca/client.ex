@@ -120,6 +120,24 @@ defmodule AlpacaTrader.Alpaca.Client do
     |> handle()
   end
 
+  @doc """
+  Latest top-of-book quotes with bid/ask sizes for a list of symbols.
+  Returns `{:ok, %{symbol => quote_map}}` keyed by symbol. Quote shape:
+  `%{"bp" => bid_price, "ap" => ask_price, "bs" => bid_size, "as" => ask_size}`.
+  """
+  def latest_stock_quotes_with_sizes(symbols) when is_list(symbols) do
+    joined = Enum.join(symbols, ",")
+
+    data_client()
+    |> Req.get(url: "/v2/stocks/quotes/latest", params: [symbols: joined, feed: "iex"])
+    |> handle()
+    |> case do
+      {:ok, %{"quotes" => quotes}} when is_map(quotes) -> {:ok, quotes}
+      {:ok, _other} -> {:ok, %{}}
+      {:error, _} = err -> err
+    end
+  end
+
   def get_stock_snapshots(symbols) when is_list(symbols) do
     joined = Enum.join(symbols, ",")
 

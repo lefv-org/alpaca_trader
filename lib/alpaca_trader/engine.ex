@@ -790,7 +790,10 @@ defmodule AlpacaTrader.Engine do
             []
 
           {:ok, %{conviction: c, reasoning: r}} ->
-            Logger.info("[LLM Gate] CONFIRMED #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}")
+            Logger.info(
+              "[LLM Gate] CONFIRMED #{describe_arb(arb)} conviction=#{Float.round(c, 2)}: #{r}"
+            )
+
             execute_entry(ctx, arb)
 
           _ ->
@@ -798,6 +801,17 @@ defmodule AlpacaTrader.Engine do
         end
     end
   end
+
+  # Render the arb concisely for logs. For pair tiers it shows the pair
+  # and direction so the reader can predict which leg will actually trade
+  # (e.g. long-only mode buys `arb.pair_asset` when direction is
+  # `:long_b_short_a`).
+  defp describe_arb(%{tier: tier, asset: a, pair_asset: b, direction: dir})
+       when tier in [2, 3] and not is_nil(b) do
+    "#{a}↔#{b} #{dir}"
+  end
+
+  defp describe_arb(%{asset: a}), do: to_string(a)
 
   defp alt_data_suppressed?(asset) do
     threshold = Application.get_env(:alpaca_trader, :alt_data_suppress_threshold, 0.6)
@@ -824,7 +838,7 @@ defmodule AlpacaTrader.Engine do
 
       {:ok, %{conviction: c, reasoning: r}} ->
         Logger.info(
-          "[LLM Gate] CONFIRMED flip #{arb.asset} conviction=#{Float.round(c, 2)}: #{r}"
+          "[LLM Gate] CONFIRMED flip #{describe_arb(arb)} conviction=#{Float.round(c, 2)}: #{r}"
         )
 
         if gain_ok?, do: execute_flip(ctx, arb), else: execute_exit(ctx, arb)

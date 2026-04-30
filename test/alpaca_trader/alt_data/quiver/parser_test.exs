@@ -1,7 +1,6 @@
 defmodule AlpacaTrader.AltData.Quiver.ParserTest do
   use ExUnit.Case, async: true
   alias AlpacaTrader.AltData.Quiver.Parser
-  alias AlpacaTrader.AltData.Signal
 
   defp load_fixture(name) do
     Path.join([__DIR__, "..", "..", "..", "support", "fixtures", "quiver", "#{name}.json"])

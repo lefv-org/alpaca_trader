@@ -1,0 +1,7 @@
+[
+  {"Representative":"Nancy Pelosi","Ticker":"NVDA","Transaction":"Purchase","Range":"$1,000,001 - $5,000,000","TransactionDate":"2026-04-22","ReportDate":"2026-04-25","House":"House"},
+  {"Representative":"Nancy Pelosi","Ticker":"NVDA","Transaction":"Purchase","Range":"$500,001 - $1,000,000","TransactionDate":"2026-04-23","ReportDate":"2026-04-26","House":"House"},
+  {"Representative":"Dan Crenshaw","Ticker":"NVDA","Transaction":"Purchase","Range":"$15,001 - $50,000","TransactionDate":"2026-04-21","ReportDate":"2026-04-24","House":"House"},
+  {"Representative":"Tommy Tuberville","Ticker":"BA","Transaction":"Sale","Range":"$50,001 - $100,000","TransactionDate":"2026-04-20","ReportDate":"2026-04-23","House":"Senate"},
+  {"Representative":"Mark Warner","Ticker":"AAPL","Transaction":"Purchase","Range":"$1,001 - $15,000","TransactionDate":"2026-03-01","ReportDate":"2026-03-04","House":"Senate"}
+]

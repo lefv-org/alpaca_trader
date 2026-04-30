@@ -219,4 +219,29 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
       assert Parser.parse_govcontracts(rows, now, 30) == []
     end
   end
+
+  describe "parse_lobbying/2" do
+    setup do
+      now = ~U[2026-04-30 12:00:00Z]
+      {:ok, rows: load_fixture("lobbying"), now: now}
+    end
+
+    test "computes YoY delta strength when prior year exists", %{rows: rows, now: now} do
+      [googl] = Enum.filter(Parser.parse_lobbying(rows, now), &("GOOGL" in &1.affected_symbols))
+      assert googl.direction == :neutral
+      assert googl.signal_type == :lobbying_spike
+      # |3.5M - 2M| / max(1, 2M) = 0.75
+      assert_in_delta googl.strength, 0.75, 0.001
+    end
+
+    test "strength = 0.0 when prior year missing", %{rows: rows, now: now} do
+      [newco] = Enum.filter(Parser.parse_lobbying(rows, now), &("NEWCO" in &1.affected_symbols))
+      assert newco.strength == 0.0
+    end
+
+    test "expires_at = now + 90d", %{rows: rows, now: now} do
+      [s | _] = Parser.parse_lobbying(rows, now)
+      assert DateTime.compare(s.expires_at, DateTime.add(now, 90 * 24 * 3600, :second)) == :eq
+    end
+  end
 end

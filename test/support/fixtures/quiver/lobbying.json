@@ -1,0 +1,5 @@
+[
+  {"Ticker":"GOOGL","Client":"Google LLC","Amount":"3500000","Year":2026,"Quarter":1},
+  {"Ticker":"GOOGL","Client":"Google LLC","Amount":"2000000","Year":2025,"Quarter":1},
+  {"Ticker":"NEWCO","Client":"NewCo","Amount":"1500000","Year":2026,"Quarter":1}
+]

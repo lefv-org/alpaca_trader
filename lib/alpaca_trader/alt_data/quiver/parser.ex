@@ -227,4 +227,65 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
       }
     }
   end
+
+  @doc "Lobbying disclosures — `/live/lobbying`. Latest disclosed quarter, with prior-year YoY delta."
+  @spec parse_lobbying(list(map()), DateTime.t()) :: [Signal.t()]
+  def parse_lobbying(rows, now) when is_list(rows) do
+    rows
+    |> Enum.flat_map(&normalize_lobbying_row/1)
+    |> Enum.group_by(& &1.ticker)
+    |> Enum.map(fn {ticker, group} -> build_lobbying_signal(ticker, group, now) end)
+  end
+
+  defp normalize_lobbying_row(%{"Ticker" => t, "Amount" => amt, "Year" => yr, "Quarter" => q})
+       when is_binary(t) and t != "" and is_integer(yr) and is_integer(q) do
+    case Float.parse(to_string(amt)) do
+      {amount, _} ->
+        [%{ticker: String.upcase(t), amount: amount, year: yr, quarter: q}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp normalize_lobbying_row(_), do: []
+
+  defp build_lobbying_signal(ticker, group, now) do
+    {latest_year, latest_quarter} =
+      group
+      |> Enum.map(&{&1.year, &1.quarter})
+      |> Enum.max(fn a, b -> a >= b end, fn -> {0, 0} end)
+
+    current =
+      group
+      |> Enum.filter(&(&1.year == latest_year and &1.quarter == latest_quarter))
+      |> Enum.map(& &1.amount)
+      |> Enum.sum()
+
+    prior =
+      group
+      |> Enum.filter(&(&1.year == latest_year - 1 and &1.quarter == latest_quarter))
+      |> Enum.map(& &1.amount)
+      |> Enum.sum()
+
+    strength =
+      if prior > 0 do
+        min(1.0, abs(current - prior) / prior)
+      else
+        0.0
+      end
+
+    %Signal{
+      provider: :quiver_lobbying,
+      signal_type: :lobbying_spike,
+      direction: :neutral,
+      strength: strength,
+      affected_symbols: [ticker],
+      reason:
+        "Lobbying $#{trunc(current)} (Q#{latest_quarter} #{latest_year}) vs $#{trunc(prior)} prior year",
+      fetched_at: now,
+      expires_at: DateTime.add(now, 90 * 24 * 3600, :second),
+      raw: %{current: current, prior_year: prior, year: latest_year, quarter: latest_quarter}
+    }
+  end
 end

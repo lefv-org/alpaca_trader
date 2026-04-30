@@ -172,4 +172,59 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
       true -> :single
     end
   end
+
+  @doc "Federal contract awards — `/beta/live/govcontractsall`."
+  @spec parse_govcontracts(list(map()), DateTime.t(), pos_integer()) :: [Signal.t()]
+  def parse_govcontracts(rows, now, lookback_days) when is_list(rows) do
+    cutoff = DateTime.add(now, -lookback_days * 24 * 3600, :second)
+
+    rows
+    |> Enum.flat_map(&normalize_contract_row/1)
+    |> Enum.filter(fn r -> DateTime.compare(r.dt, cutoff) != :lt and r.amount > 0 end)
+    |> Enum.group_by(& &1.ticker)
+    |> Enum.map(fn {ticker, group} ->
+      build_contract_signal(ticker, group, now, lookback_days)
+    end)
+  end
+
+  defp normalize_contract_row(%{"Ticker" => t, "Amount" => amt, "Date" => date_str} = row)
+       when is_binary(t) and t != "" and is_binary(date_str) do
+    with {:ok, d} <- Date.from_iso8601(date_str),
+         {amount, _} <- Float.parse(to_string(amt)) do
+      [
+        %{
+          ticker: String.upcase(t),
+          amount: amount,
+          agency: row["Agency"],
+          description: row["Description"],
+          dt: DateTime.new!(d, ~T[00:00:00], "Etc/UTC")
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp normalize_contract_row(_), do: []
+
+  defp build_contract_signal(ticker, group, now, lookback_days) do
+    total = group |> Enum.map(& &1.amount) |> Enum.sum() |> trunc()
+    strength = min(1.0, total / 100_000_000)
+
+    %Signal{
+      provider: :quiver_govcontracts,
+      signal_type: :gov_contract_award,
+      direction: :bullish,
+      strength: strength,
+      affected_symbols: [ticker],
+      reason: "$#{total} in federal contracts over #{lookback_days}d (#{length(group)} awards)",
+      fetched_at: now,
+      expires_at: DateTime.add(now, lookback_days * 24 * 3600, :second),
+      raw: %{
+        total_amount: total,
+        award_count: length(group),
+        agencies: group |> Enum.map(& &1.agency) |> Enum.uniq()
+      }
+    }
+  end
 end

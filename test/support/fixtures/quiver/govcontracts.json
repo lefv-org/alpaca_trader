@@ -1,0 +1,7 @@
+[
+  {"Ticker":"LMT","Amount":"45000000","Description":"Aircraft parts","Date":"2026-04-25","Agency":"DOD"},
+  {"Ticker":"LMT","Amount":"60000000","Description":"Maintenance","Date":"2026-04-22","Agency":"DOD"},
+  {"Ticker":"BA","Amount":"-5000000","Description":"Cancellation","Date":"2026-04-21","Agency":"DOD"},
+  {"Ticker":"BA","Amount":"20000000","Description":"Engine","Date":"2026-04-20","Agency":"DOD"},
+  {"Ticker":"OLD","Amount":"1000000","Description":"X","Date":"2025-01-01","Agency":"DOD"}
+]

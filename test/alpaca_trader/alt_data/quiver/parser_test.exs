@@ -176,4 +176,47 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
       assert Parser.parse_insider(rows, now, 30) == []
     end
   end
+
+  describe "parse_govcontracts/3" do
+    setup do
+      now = ~U[2026-04-30 12:00:00Z]
+      {:ok, rows: load_fixture("govcontracts"), now: now}
+    end
+
+    test "filters stale rows and cancellations", %{rows: rows, now: now} do
+      signals = Parser.parse_govcontracts(rows, now, 30)
+      tickers = Enum.flat_map(signals, & &1.affected_symbols) |> Enum.sort()
+      assert tickers == ["BA", "LMT"]
+    end
+
+    test "always bullish on award totals", %{rows: rows, now: now} do
+      [lmt] =
+        Enum.filter(Parser.parse_govcontracts(rows, now, 30), &("LMT" in &1.affected_symbols))
+
+      assert lmt.direction == :bullish
+      assert lmt.signal_type == :gov_contract_award
+      # 45M + 60M = 105M; cap at 100M; strength clipped to 1.0
+      assert_in_delta lmt.strength, 1.0, 0.001
+    end
+
+    test "BA cancellation is excluded; only the 20M award counts", %{rows: rows, now: now} do
+      [ba] = Enum.filter(Parser.parse_govcontracts(rows, now, 30), &("BA" in &1.affected_symbols))
+      assert ba.raw[:total_amount] == 20_000_000
+      assert_in_delta ba.strength, 0.2, 0.001
+    end
+
+    test "skips rows with nil date", %{now: now} do
+      rows = [
+        %{
+          "Ticker" => "X",
+          "Amount" => "1000",
+          "Description" => "X",
+          "Date" => nil,
+          "Agency" => "DOD"
+        }
+      ]
+
+      assert Parser.parse_govcontracts(rows, now, 30) == []
+    end
+  end
 end

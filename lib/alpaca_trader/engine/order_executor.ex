@@ -111,7 +111,19 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         )
 
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
-        hold(ctx.symbol, "account does not support shorting")
+        # Tier 2/3 long-only-mode pair exits sometimes target the leg that
+        # was never bought (when direction was inverted vs. what was actually
+        # held). Drop silently rather than holding — the actual long leg's
+        # exit, if any, will arrive via a subsequent scan iteration.
+        Logger.debug("[Trade] ⏸ HOLD #{ctx.symbol}: nothing held to sell (long-only)")
+
+        {:ok,
+         %PurchaseContext{
+           action: :hold,
+           symbol: ctx.symbol,
+           reason: "nothing held to sell (long-only)",
+           timestamp: DateTime.utc_now()
+         }}
 
       side == "buy" and notional != nil and buying_power != nil and buying_power < notional ->
         hold(

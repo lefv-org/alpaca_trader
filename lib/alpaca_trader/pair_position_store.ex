@@ -63,8 +63,20 @@ defmodule AlpacaTrader.PairPositionStore do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
   end
 
-  @doc "Open a new pair position."
+  @doc """
+  Open a new pair position. Idempotent across symbol-pair regardless of
+  ordering (`A↔B` and `B↔A` are deduplicated) so pair-trade logic that
+  sees the same underlying long leg from both orderings doesn't open
+  twice.
+  """
   def open_position(attrs) when is_map(attrs) do
+    case find_open_for_pair(attrs.asset_a, attrs.asset_b) do
+      nil -> do_open_position(attrs)
+      existing -> {:ok, existing}
+    end
+  end
+
+  defp do_open_position(attrs) do
     id = "#{attrs.asset_a}-#{attrs.asset_b}-#{System.system_time(:second)}"
 
     pos = %PairPosition{
@@ -91,6 +103,18 @@ defmodule AlpacaTrader.PairPositionStore do
     :ets.insert(@table, {id, pos})
     persist_async()
     {:ok, pos}
+  end
+
+  @doc "Find an open position for this exact pair (order-insensitive)."
+  def find_open_for_pair(asset_a, asset_b) do
+    @table
+    |> :ets.tab2list()
+    |> Enum.find_value(fn {_id, pos} ->
+      if pos.status == :open and
+           ((pos.asset_a == asset_a and pos.asset_b == asset_b) or
+              (pos.asset_a == asset_b and pos.asset_b == asset_a)),
+         do: pos
+    end)
   end
 
   @doc "Find an open position involving this asset."

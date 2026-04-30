@@ -138,7 +138,7 @@ defmodule AlpacaTrader.EngineTest do
 
       {:ok, result} = Engine.execute_trade(ctx, %{"side" => "sell", "qty" => "1"})
       assert result.action == :hold
-      assert result.reason == "account does not support shorting"
+      assert result.reason == "nothing held to sell (long-only)"
     end
 
     test "allows crypto when market is closed" do

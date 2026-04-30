@@ -59,7 +59,9 @@ defmodule AlpacaTrader.AltData.Quiver.Client do
   end
 
   defp req(key) do
-    base = Application.get_env(:alpaca_trader, :quiver_base_url, "https://api.quiverquant.com/beta")
+    base =
+      Application.get_env(:alpaca_trader, :quiver_base_url, "https://api.quiverquant.com/beta")
+
     timeout = Application.get_env(:alpaca_trader, :quiver_timeout_ms, 15_000)
 
     opts = [

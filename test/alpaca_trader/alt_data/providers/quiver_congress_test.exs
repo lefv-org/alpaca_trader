@@ -27,8 +27,15 @@ defmodule AlpacaTrader.AltData.Providers.QuiverCongressTest do
 
     Req.Test.stub(@plug, fn conn ->
       assert String.ends_with?(conn.request_path, "/bulk/congresstrading")
+
       Req.Test.json(conn, [
-        %{"Ticker" => "AAPL", "Transaction" => "Purchase", "TransactionDate" => today, "Representative" => "X", "Range" => "$1-$15K"}
+        %{
+          "Ticker" => "AAPL",
+          "Transaction" => "Purchase",
+          "TransactionDate" => today,
+          "Representative" => "X",
+          "Range" => "$1-$15K"
+        }
       ])
     end)
 

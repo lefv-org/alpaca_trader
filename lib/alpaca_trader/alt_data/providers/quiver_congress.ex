@@ -20,8 +20,12 @@ defmodule AlpacaTrader.AltData.Providers.QuiverCongress do
   @impl true
   def fetch do
     case Application.get_env(:alpaca_trader, :quiverquant_api_key) do
-      nil -> {:ok, []}
-      "" -> {:ok, []}
+      nil ->
+        {:ok, []}
+
+      "" ->
+        {:ok, []}
+
       _ ->
         lookback = Application.get_env(:alpaca_trader, :quiver_congress_lookback_d, 14)
 

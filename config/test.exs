@@ -26,4 +26,5 @@ config :alpaca_trader,
   alpaca_key_id: "test_key_id",
   alpaca_secret_key: "test_secret_key",
   req_plug: {Req.Test, AlpacaTrader.Alpaca.Client},
+  quiver_req_plug: {Req.Test, AlpacaTrader.AltData.Quiver.Client},
   skip_startup_sync: true

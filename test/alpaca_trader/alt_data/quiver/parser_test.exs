@@ -244,4 +244,56 @@ defmodule AlpacaTrader.AltData.Quiver.ParserTest do
       assert DateTime.compare(s.expires_at, DateTime.add(now, 90 * 24 * 3600, :second)) == :eq
     end
   end
+
+  describe "parse_wsb/2" do
+    setup do
+      now = ~U[2026-04-30 12:00:00Z]
+      {:ok, rows: load_fixture("wsb"), now: now}
+    end
+
+    test "bullish when sentiment > 0.6 AND mentions rising", %{rows: rows, now: now} do
+      [gme] = Enum.filter(Parser.parse_wsb(rows, now), &("GME" in &1.affected_symbols))
+      assert gme.direction == :bullish
+      assert gme.signal_type == :wsb_sentiment
+      # 650 / 500 capped at 1.0
+      assert_in_delta gme.strength, 1.0, 0.001
+    end
+
+    test "neutral when sentiment in middle band even with rising mentions", %{
+      rows: rows,
+      now: now
+    } do
+      [nvda] = Enum.filter(Parser.parse_wsb(rows, now), &("NVDA" in &1.affected_symbols))
+      assert nvda.direction == :neutral
+    end
+
+    test "bearish requires sentiment < 0.4 AND mentions rising", %{rows: rows, now: now} do
+      # AMC: sentiment 0.30 but mentions DROPPED -> :neutral
+      [amc] = Enum.filter(Parser.parse_wsb(rows, now), &("AMC" in &1.affected_symbols))
+      assert amc.direction == :neutral
+
+      # TSLA: sentiment 0.20 AND mentions dropped -> :neutral
+      [tsla] = Enum.filter(Parser.parse_wsb(rows, now), &("TSLA" in &1.affected_symbols))
+      assert tsla.direction == :neutral
+
+      # synthetic bearish: low sentiment + rising mentions
+      bear_row = [
+        %{
+          "Ticker" => "X",
+          "Mentions" => 300,
+          "PreviousMentions" => 100,
+          "Sentiment" => 0.15,
+          "Date" => "2026-04-30"
+        }
+      ]
+
+      [x] = Parser.parse_wsb(bear_row, now)
+      assert x.direction == :bearish
+    end
+
+    test "expires_at = now + 24h", %{rows: rows, now: now} do
+      [s | _] = Parser.parse_wsb(rows, now)
+      assert DateTime.compare(s.expires_at, DateTime.add(now, 24 * 3600, :second)) == :eq
+    end
+  end
 end

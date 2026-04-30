@@ -1,0 +1,6 @@
+[
+  {"Ticker":"GME","Mentions":650,"PreviousMentions":300,"Sentiment":0.78,"Date":"2026-04-30"},
+  {"Ticker":"AMC","Mentions":120,"PreviousMentions":140,"Sentiment":0.30,"Date":"2026-04-30"},
+  {"Ticker":"NVDA","Mentions":400,"PreviousMentions":250,"Sentiment":0.50,"Date":"2026-04-30"},
+  {"Ticker":"TSLA","Mentions":80,"PreviousMentions":250,"Sentiment":0.20,"Date":"2026-04-30"}
+]

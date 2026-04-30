@@ -288,4 +288,60 @@ defmodule AlpacaTrader.AltData.Quiver.Parser do
       raw: %{current: current, prior_year: prior, year: latest_year, quarter: latest_quarter}
     }
   end
+
+  @doc "WallStreetBets sentiment — `/live/wallstreetbets`."
+  @spec parse_wsb(list(map()), DateTime.t()) :: [Signal.t()]
+  def parse_wsb(rows, now) when is_list(rows) do
+    rows
+    |> Enum.flat_map(&normalize_wsb_row/1)
+    |> Enum.map(&build_wsb_signal(&1, now))
+  end
+
+  defp normalize_wsb_row(%{
+         "Ticker" => t,
+         "Mentions" => m,
+         "PreviousMentions" => prev,
+         "Sentiment" => s
+       })
+       when is_binary(t) and t != "" do
+    with {mentions, _} <- safe_to_float(m),
+         {prev_mentions, _} <- safe_to_float(prev),
+         {sentiment, _} <- safe_to_float(s) do
+      [%{ticker: String.upcase(t), mentions: mentions, prev: prev_mentions, sentiment: sentiment}]
+    else
+      _ -> []
+    end
+  end
+
+  defp normalize_wsb_row(_), do: []
+
+  defp safe_to_float(n) when is_number(n), do: {n / 1, ""}
+  defp safe_to_float(s) when is_binary(s), do: Float.parse(s)
+  defp safe_to_float(_), do: :error
+
+  defp build_wsb_signal(row, now) do
+    rising? = row.mentions > row.prev
+
+    direction =
+      cond do
+        row.sentiment > 0.6 and rising? -> :bullish
+        row.sentiment < 0.4 and rising? -> :bearish
+        true -> :neutral
+      end
+
+    strength = min(1.0, row.mentions / 500.0)
+
+    %Signal{
+      provider: :quiver_wsb,
+      signal_type: :wsb_sentiment,
+      direction: direction,
+      strength: strength,
+      affected_symbols: [row.ticker],
+      reason:
+        "WSB sentiment=#{row.sentiment} mentions=#{trunc(row.mentions)} (prev=#{trunc(row.prev)})",
+      fetched_at: now,
+      expires_at: DateTime.add(now, 24 * 3600, :second),
+      raw: %{mentions: row.mentions, prev_mentions: row.prev, sentiment: row.sentiment}
+    }
+  end
 end

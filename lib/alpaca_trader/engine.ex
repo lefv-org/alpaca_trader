@@ -1547,9 +1547,33 @@ defmodule AlpacaTrader.Engine do
     # Discovery scan: rotate through new stocks each iteration
     discovery_hits = discover_new_pairs()
 
-    all_hits = Enum.filter(results, & &1.result) ++ discovery_hits
-    {length(results) + length(discovery_hits), all_hits}
+    raw_hits = Enum.filter(results, & &1.result) ++ discovery_hits
+
+    # Drop entries on assets that already have an open pair position. The
+    # store-level dedup prevents duplicate records but the scanner still
+    # emits identical signals every cycle, causing the same symbol to be
+    # bought 8+ times. Skip them here so they never reach the cap.
+    deduped_hits = Enum.reject(raw_hits, &entry_for_already_held?/1)
+
+    dropped = length(raw_hits) - length(deduped_hits)
+
+    if dropped > 0 do
+      Logger.debug("[Engine] dropped #{dropped} re-entries on already-held pairs")
+    end
+
+    {length(results) + length(discovery_hits), deduped_hits}
   end
+
+  defp entry_for_already_held?(%{action: :enter, asset: a, pair_asset: b})
+       when is_binary(a) and is_binary(b) do
+    PairPositionStore.find_open_for_pair(a, b) != nil
+  end
+
+  defp entry_for_already_held?(%{action: :enter, asset: a}) when is_binary(a) do
+    PairPositionStore.find_open_for_asset(a) != nil
+  end
+
+  defp entry_for_already_held?(_), do: false
 
   defp discover_new_pairs do
     scanner_hits =

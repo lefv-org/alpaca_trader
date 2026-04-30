@@ -531,8 +531,27 @@ defmodule AlpacaTrader.Engine do
 
     {scanned, hits} = do_scan(ctx)
 
+    # Cap :enter actions per scan so a 90+ opportunity batch can't blow past
+    # the 60s scheduler window once each opp is gated through the LLM (which
+    # can take 30s+ on Ollama timeouts). Manage actions (:exit/:flip/:rotate)
+    # always run — they protect existing positions.
+    max_entries = Application.get_env(:alpaca_trader, :max_entries_per_scan, 5)
+
+    {entries, manage} = Enum.split_with(hits, &(&1.action == :enter))
+
+    capped_entries =
+      entries
+      |> Enum.sort_by(&entry_priority/1, :desc)
+      |> Enum.take(max_entries)
+
+    if length(entries) > max_entries do
+      Logger.info(
+        "[Engine] capping entries: #{length(entries)} candidates → #{max_entries} (top by priority)"
+      )
+    end
+
     trades =
-      Enum.flat_map(hits, fn arb ->
+      Enum.flat_map(manage ++ capped_entries, fn arb ->
         case arb.action do
           :enter -> gate_and_enter(ctx, arb)
           :exit -> execute_exit(ctx, arb)
@@ -800,6 +819,24 @@ defmodule AlpacaTrader.Engine do
             execute_entry(ctx, arb)
         end
     end
+  end
+
+  # Priority for entry capping: prefer tier-1 (highest-confidence single-asset
+  # opportunities), then tier-2 pairs by |z_score|, then tier-5 alt-data by
+  # signal strength. Returns a tuple sortable in descending order.
+  defp entry_priority(arb) do
+    tier_score =
+      case arb.tier do
+        1 -> 100
+        2 -> 80
+        3 -> 70
+        5 -> 50
+        _ -> 0
+      end
+
+    z_score = if is_number(arb.z_score), do: abs(arb.z_score), else: 0.0
+    spread = if is_number(arb.spread), do: abs(arb.spread), else: 0.0
+    {tier_score, z_score, spread}
   end
 
   # Render the arb concisely for logs. For pair tiers it shows the pair

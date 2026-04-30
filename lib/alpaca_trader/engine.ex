@@ -531,6 +531,9 @@ defmodule AlpacaTrader.Engine do
 
     {scanned, hits} = do_scan(ctx)
 
+    action_counts = hits |> Enum.frequencies_by(& &1.action)
+    Logger.info("[Engine] hits by action: #{inspect(action_counts)}")
+
     # Cap :enter actions per scan so a 90+ opportunity batch can't blow past
     # the 60s scheduler window once each opp is gated through the LLM (which
     # can take 30s+ on Ollama timeouts). Manage actions (:exit/:flip/:rotate)
@@ -778,10 +781,23 @@ defmodule AlpacaTrader.Engine do
 
   defp gate_and_enter(ctx, arb) do
     # Cheap checks first, expensive LLM last.
-    # 1. Can the account afford a new entry? (buying power > reserve + notional)
-    # 2. Is the gain accumulator allowing entries?
-    # Only then call the LLM.
+    # 1. PDT block: when account is sub-$25k and recently traded, skip equity
+    #    entries entirely (any same-day close = day trade, freezes account at 4).
+    # 2. Can the account afford a new entry? (buying power > reserve + notional)
+    # 3. Is the gain accumulator allowing entries?
+    # 4. Portfolio sector/cluster caps (cheap, deterministic — runs before
+    #    LLM so we don't waste 10–30s/call gating doomed candidates).
+    # 5. Alt-data suppression
+    # 6. LLM conviction gate
     cond do
+      pdt_blocks_equity?(ctx, arb) ->
+        Logger.debug(
+          "[Pre-flight] ⏸ skipping #{describe_arb(arb)}: under PDT (sub-$25k, equity entry)"
+        )
+
+        shadow_record_blocked(arb, [:pdt])
+        []
+
       not can_afford_entry?(ctx) ->
         Logger.debug("[Pre-flight] ⏸ skipping #{arb.asset}: insufficient buying power for entry")
         shadow_record_blocked(arb, [:buying_power])
@@ -789,6 +805,16 @@ defmodule AlpacaTrader.Engine do
 
       not gain_allows_entry?(ctx) ->
         shadow_record_blocked(arb, [:gain_accumulator])
+        []
+
+      match?({:blocked, _}, AlpacaTrader.PortfolioRisk.allow_entry?(arb)) ->
+        {:blocked, reason} = AlpacaTrader.PortfolioRisk.allow_entry?(arb)
+
+        Logger.debug(
+          "[Pre-flight] ⏸ skipping #{describe_arb(arb)}: portfolio gate (#{reason})"
+        )
+
+        shadow_record_blocked(arb, [:portfolio])
         []
 
       alt_data_suppressed?(arb.asset) ->
@@ -837,6 +863,24 @@ defmodule AlpacaTrader.Engine do
     z_score = if is_number(arb.z_score), do: abs(arb.z_score), else: 0.0
     spread = if is_number(arb.spread), do: abs(arb.spread), else: 0.0
     {tier_score, z_score, spread}
+  end
+
+  # PDT (Pattern Day Trader) protection: an Alpaca account with equity
+  # < $25k that day-trades 4 times in 5 days gets frozen. Bot strategies
+  # routinely close same-day, so any equity entry under sub-$25k is a PDT
+  # risk. Skip equity entries entirely while under PDT and not yet at the
+  # $25k threshold. Crypto and pair-leg crypto remain allowed (24/7, no PDT
+  # rules). Toggle off via :pdt_block_equity_entries=false.
+  defp pdt_blocks_equity?(ctx, arb) do
+    if Application.get_env(:alpaca_trader, :pdt_block_equity_entries, true) do
+      equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
+      under_pdt = equity < 25_000.0
+      asset_is_crypto? = is_binary(arb.asset) and String.contains?(arb.asset, "/")
+      pair_is_crypto? = is_binary(arb.pair_asset) and String.contains?(arb.pair_asset, "/")
+      under_pdt and not (asset_is_crypto? and pair_is_crypto?)
+    else
+      false
+    end
   end
 
   # Render the arb concisely for logs. For pair tiers it shows the pair
@@ -1210,9 +1254,25 @@ defmodule AlpacaTrader.Engine do
       base_notional
       |> apply_half_life_size_multiplier(arb)
       |> apply_kelly_cap(equity)
+      |> apply_cash_cap(ctx)
 
     # Alpaca minimum notional is $1
     to_string(max(Float.round(notional, 2), 1.0))
+  end
+
+  # Cap notional at half of available cash so a $5 trade doesn't reject when
+  # only $4 is free. Without this, equity*pct ignores other open orders'
+  # locked cash and produces predictable `insufficient balance for USD`
+  # rejections. Half is the safety margin (a pair entry submits two legs).
+  defp apply_cash_cap(notional, ctx) do
+    cash =
+      parse_float(get_in(ctx.account, ["cash"])) ||
+        parse_float(get_in(ctx.account, ["buying_power"])) ||
+        0.0
+
+    cap_pct = Application.get_env(:alpaca_trader, :cash_cap_pct, 0.5)
+    cap = cash * cap_pct
+    if cap > 0, do: min(notional, cap), else: notional
   end
 
   # Optional Kelly-fractional ceiling: clips notional at

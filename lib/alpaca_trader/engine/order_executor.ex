@@ -60,11 +60,15 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     end
   end
 
-  defp marketable_limit_price_pure(side, bid, ask, k) when side in [:buy, "buy"],
-    do: ask + k * (ask - bid)
+  defp marketable_limit_price_pure(side, bid, ask, k) when side in [:buy, "buy"] do
+    raw = ask + k * (ask - bid)
+    round_tick(raw, "buy", %{})
+  end
 
-  defp marketable_limit_price_pure(side, bid, ask, k) when side in [:sell, "sell"],
-    do: bid - k * (ask - bid)
+  defp marketable_limit_price_pure(side, bid, ask, k) when side in [:sell, "sell"] do
+    raw = bid - k * (ask - bid)
+    round_tick(raw, "sell", %{})
+  end
 
   @doc """
   Submit a single order for one symbol, with safety preflights (tradable,
@@ -406,13 +410,35 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
           end
 
         if is_number(price) and price > 0,
-          do: {:ok, Float.round(price * 1.0, 6)},
+          do: {:ok, round_tick(price, side, quote_map)},
           else: :error
 
       true ->
         bps_fallback_price(quote_map, side)
     end
   end
+
+  # Alpaca rejects sub-penny limit prices on equities priced ≥ $1 with
+  # `code=42210000 sub-penny increment does not fulfill minimum pricing
+  # criteria`. Round to $0.01 for equities and to $0.0001 for crypto.
+  # Buy side rounds UP (ensures we still cross the spread); sell side rounds
+  # DOWN (ditto). For prices < $1 (penny stocks) keep 4-decimal precision.
+  defp round_tick(price, side, _quote_map) when is_number(price) do
+    tick =
+      cond do
+        price >= 1.0 -> 0.01
+        true -> 0.0001
+      end
+
+    case side do
+      "buy" -> ceil_to(price, tick)
+      "sell" -> floor_to(price, tick)
+      _ -> Float.round(price, 4)
+    end
+  end
+
+  defp ceil_to(price, tick), do: Float.ceil(price / tick) * tick |> Float.round(4)
+  defp floor_to(price, tick), do: Float.floor(price / tick) * tick |> Float.round(4)
 
   defp bps_fallback_price(quote_map, side) do
     tolerance_bps =
@@ -442,7 +468,7 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
       end
 
     if is_number(price) and price > 0,
-      do: {:ok, Float.round(price * multiplier, 6)},
+      do: {:ok, round_tick(price * multiplier, side, quote_map)},
       else: :error
   end
 

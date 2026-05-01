@@ -1683,23 +1683,7 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp recently_closed_asset?(asset) when is_binary(asset) do
-    ensure_recent_close_assets_table()
-    now = System.monotonic_time(:millisecond)
-
-    case :ets.lookup(@recent_close_assets_table, asset) do
-      [{_, ts}] ->
-        active = now - ts < @recent_close_cooldown_ms
-
-        Logger.debug(
-          "[Engine] cooldown lookup #{asset}: ts=#{ts} now=#{now} dt=#{now - ts}ms active=#{active}"
-        )
-
-        active
-
-      _ ->
-        Logger.debug("[Engine] cooldown lookup #{asset}: not found")
-        false
-    end
+    PairPositionStore.asset_closed_recently?(asset, @recent_close_cooldown_ms)
   end
 
   defp recently_closed_asset?(_), do: false

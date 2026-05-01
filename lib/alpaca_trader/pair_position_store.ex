@@ -232,6 +232,23 @@ defmodule AlpacaTrader.PairPositionStore do
     length(open_positions())
   end
 
+  @doc """
+  True if any position involving `asset` was closed within the last
+  `cooldown_ms` milliseconds. Used by the engine's entry filter to avoid
+  immediate re-entry after a position closes (Reaper, sync-close, etc).
+  """
+  def asset_closed_recently?(asset, cooldown_ms) when is_binary(asset) do
+    cutoff = DateTime.add(DateTime.utc_now(), -div(cooldown_ms, 1000), :second)
+
+    @table
+    |> :ets.tab2list()
+    |> Enum.any?(fn {_id, pos} ->
+      pos.status == :closed and
+        (pos.asset_a == asset or pos.asset_b == asset) and
+        DateTime.compare(pos.last_updated, cutoff) == :gt
+    end)
+  end
+
   @doc "Clear all positions (for testing)."
   def clear do
     :ets.delete_all_objects(@table)

@@ -19,6 +19,7 @@ defmodule AlpacaTrader.PositionReconciler do
   alias AlpacaTrader.PairPositionStore
 
   @orphans_key {__MODULE__, :orphan_symbols}
+  @alpaca_held_key {__MODULE__, :alpaca_held}
 
   @doc """
   Reconcile Alpaca's open positions against PairPositionStore.
@@ -87,7 +88,6 @@ defmodule AlpacaTrader.PositionReconciler do
   the cached Alpaca-side set written by reconcile/0, so it does not
   trigger a fresh API call. Stale up to one reconciler tick (1 min).
   """
-  @alpaca_held_key {__MODULE__, :alpaca_held}
   def held_on_alpaca?(symbol) when is_binary(symbol) do
     case :persistent_term.get(@alpaca_held_key, nil) do
       nil -> false

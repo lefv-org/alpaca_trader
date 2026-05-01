@@ -133,7 +133,8 @@ defmodule AlpacaTrader.Strategies.OrderBookImbalance do
     # 25 s timeout. Extracting both shapes here makes the strategy
     # tolerant of either source.
     case {extract_quote(quote), extract_quote(prev)} do
-      {{:ok, bid, ask, bid_size, ask_size}, {:ok, prev_bid, prev_ask, _, _}} ->
+      {{:ok, bid, ask, bid_size, ask_size}, {:ok, prev_bid, prev_ask, _, _}}
+      when bid > 0.0 and ask > 0.0 and prev_bid > 0.0 and prev_ask > 0.0 ->
         process_quote_with_values(
           symbol,
           quote,
@@ -147,6 +148,10 @@ defmodule AlpacaTrader.Strategies.OrderBookImbalance do
           prev_ask
         )
 
+      # Zero-priced quotes happen when the market for the symbol is
+      # closed (after-hours equity, missing crypto book). Skip — without
+      # this guard OBI emits a limit order with limit_price=0.0 which
+      # Alpaca rejects with \"limit price must be > 0\".
       _ ->
         {[], state}
     end

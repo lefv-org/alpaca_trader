@@ -16,8 +16,14 @@ defmodule AlpacaTrader.StrategyRunner do
 
   defp via(id), do: {:via, Registry, {AlpacaTrader.StrategyRunners, id}}
 
-  def scan(id, ctx), do: GenServer.call(via(id), {:scan, ctx})
-  def exits(id, ctx), do: GenServer.call(via(id), {:exits, ctx})
+  # Default 25s matches the StrategyRegistry's per-task timeout. Strategies
+  # whose scan/exits do live HTTP can exceed the GenServer.call default of
+  # 5s on a slow venue. Without this override the registry's outer 30s
+  # fan-out shield is bypassed by the inner 5s timeout, killing the runner.
+  @strategy_call_timeout 25_000
+
+  def scan(id, ctx), do: GenServer.call(via(id), {:scan, ctx}, @strategy_call_timeout)
+  def exits(id, ctx), do: GenServer.call(via(id), {:exits, ctx}, @strategy_call_timeout)
   def on_fill(id, fill), do: GenServer.cast(via(id), {:fill, fill})
 
   @impl true

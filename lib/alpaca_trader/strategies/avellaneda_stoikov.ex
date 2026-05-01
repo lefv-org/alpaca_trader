@@ -88,6 +88,20 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   # 0.0 disables (constant size).
   @default_size_eta 0.5
 
+  # OFI alpha gain. Cont/Kukanov/Stoikov 2014 show ΔP ≈ (k/depth)·OFI.
+  # We add z-normalised OFI to the reservation-price drift term:
+  #   r = mid + ofi_alpha · OFI_norm · σ · mid - q·γ·σ²·mid
+  # 0.0 disables.
+  @default_ofi_alpha 0.0
+  @default_ofi_window 20
+
+  # Guéant/Lehalle/Fernandez-Tapia 2013 inventory-bound multiplier.
+  # Replaces the hand-tuned [-2, +2] clamp with the closed-form
+  # bound q_max = sqrt(2 · log(1 + γ/κ) / (γσ²·T)). T defaults to 1
+  # day in seconds. Set GUEANT_BOUND=true to opt in (default false to
+  # preserve current AS behaviour).
+  @default_gueant_bound false
+
   # ── Strategy callbacks ────────────────────────────────────────────────────────
 
   @impl true
@@ -119,6 +133,11 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
         ),
       glft_c: resolve_float(config, :glft_c, "AS_GLFT_C", @default_glft_c),
       size_eta: resolve_float(config, :size_eta, "AS_SIZE_ETA", @default_size_eta),
+      ofi_alpha: resolve_float(config, :ofi_alpha, "AS_OFI_ALPHA", @default_ofi_alpha),
+      ofi_window: resolve_int(config, :ofi_window, "AS_OFI_WINDOW", @default_ofi_window),
+      gueant_bound:
+        resolve_bool(config, :gueant_bound, "AS_GUEANT_BOUND", @default_gueant_bound),
+      ofi_states: %{},
       open_positions: %{},
       # Last quoted bid/ask per symbol — drives anti-hysteresis suppression.
       last_quotes: %{}
@@ -182,10 +201,31 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
          {:ok, sigma2} <- compute_sigma_squared(symbol, state) do
       mid = (bid + ask) / 2.0
       sigma = :math.sqrt(sigma2)
-      q = inventory_norm(symbol, mid, ctx, state)
+      q_raw = inventory_norm(symbol, mid, ctx, state)
 
-      # Inventory-skewed reservation price
-      r = mid - q * state.gamma * sigma2 * mid
+      # Guéant/Lehalle/Fernandez-Tapia 2013 inventory-bound (optional).
+      # Replaces the hand-tuned [-2,+2] clamp with the closed-form bound
+      # q_max = sqrt(2 ln(1 + γ/κ) / (γσ²)). Capped to [-q_max, +q_max].
+      q =
+        if state.gueant_bound and sigma2 > 0.0 do
+          q_max = :math.sqrt(2.0 * :math.log(1.0 + state.gamma / state.kappa) / (state.gamma * sigma2))
+          q_raw |> max(-q_max) |> min(q_max)
+        else
+          q_raw
+        end
+
+      # OFI alpha (Cont/Kukanov/Stoikov 2014) — update accumulator and add
+      # z-normalised contribution to the reservation-price drift.
+      {ofi_norm, new_ofi_states} =
+        update_ofi(state, symbol, %{
+          bid: bid,
+          ask: ask,
+          bid_size: extract_size(quote, :bid),
+          ask_size: extract_size(quote, :ask)
+        })
+
+      # Inventory-skewed + alpha-shifted reservation price.
+      r = mid + state.ofi_alpha * ofi_norm * sigma * mid - q * state.gamma * sigma2 * mid
 
       # Optimal half-spread (in price units), with optional GLFT volatility
       # scaling (hftbacktest GLFT model). glft_c=0 → pure A-S.
@@ -201,9 +241,12 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
       # Anti-hysteresis: skip if new quotes lie within tolerance of the
       # previously-seen quotes (Hummingbot order_refresh_tolerance_pct).
       if quotes_within_tolerance?(symbol, bid_quote, ask_quote, mid, state) do
-        {nil, state}
+        {nil, %{state | ofi_states: new_ofi_states}}
       else
-        new_state = put_in(state.last_quotes[symbol], {bid_quote, ask_quote})
+        new_state =
+          state
+          |> put_in([Access.key(:last_quotes), symbol], {bid_quote, ask_quote})
+          |> Map.put(:ofi_states, new_ofi_states)
 
         sig =
           cond do
@@ -314,6 +357,27 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
        do: {:ok, bp * 1.0, ap * 1.0}
 
   defp extract_bid_ask(_), do: :error
+
+  defp extract_size(%{"bs" => v}, :bid) when is_number(v), do: v
+  defp extract_size(%{"as" => v}, :ask) when is_number(v), do: v
+  defp extract_size(%{"bid_size" => v}, :bid) when is_number(v), do: v
+  defp extract_size(%{"ask_size" => v}, :ask) when is_number(v), do: v
+  defp extract_size(_, _), do: 1.0
+
+  defp update_ofi(state, symbol, q) do
+    if state.ofi_alpha == +0.0 do
+      {0.0, state.ofi_states}
+    else
+      cur =
+        Map.get_lazy(state.ofi_states, symbol, fn ->
+          AlpacaTrader.Microstructure.OrderFlowImbalance.new(state.ofi_window)
+        end)
+
+      {:ok, _ofi_raw, new_cur} = AlpacaTrader.Microstructure.OrderFlowImbalance.update(cur, q)
+      norm = AlpacaTrader.Microstructure.OrderFlowImbalance.normalised(new_cur)
+      {norm, Map.put(state.ofi_states, symbol, new_cur)}
+    end
+  end
 
   defp compute_sigma_squared(symbol, state) do
     case BarsStore.get_closes(symbol) do
@@ -449,6 +513,20 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
     case Integer.parse(str) do
       {i, _} -> i
       :error -> default
+    end
+  end
+
+  defp resolve_bool(config, key, env, default) do
+    case Map.get(config, key) do
+      v when is_boolean(v) ->
+        v
+
+      _ ->
+        case System.get_env(env) do
+          nil -> default
+          "" -> default
+          str -> String.downcase(str) in ["1", "true", "yes", "on"]
+        end
     end
   end
 end

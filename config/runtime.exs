@@ -281,6 +281,8 @@ if config_env() != :test do
     {AlpacaTrader.Strategies.FundingBasisArb, %{}},
     {AlpacaTrader.Strategies.OrderBookImbalance, %{}},
     {AlpacaTrader.Strategies.VolBetaMeanReversion, %{}},
-    {AlpacaTrader.Strategies.AvellanedaStoikov, %{}}
+    {AlpacaTrader.Strategies.AvellanedaStoikov, %{}},
+    {AlpacaTrader.Strategies.TimeSeriesMomentum, %{}},
+    {AlpacaTrader.Strategies.DistancePairs, %{}}
   ]
 end

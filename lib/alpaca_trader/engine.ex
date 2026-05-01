@@ -637,16 +637,45 @@ defmodule AlpacaTrader.Engine do
   # the same symbol would create a day trade. Cancel them before reaping.
 
   defp cancel_pending_orders(%MarketContext{orders: orders}) when is_list(orders) do
-    pending =
+    # Only cancel STALE pending orders (>5 min old) to clear PDT blocks.
+    # Fresh pending orders are likely just-submitted and haven't filled
+    # yet — cancelling them every 60s scan kills the bot's own buys
+    # before they fill. Crypto market orders fill in <2 min normally,
+    # so 5 min is a safe staleness threshold.
+    cutoff = DateTime.add(DateTime.utc_now(), -300, :second)
+
+    stale =
       Enum.filter(orders, fn o ->
-        o["status"] in ["new", "pending_new", "accepted", "partially_filled"]
+        in_pending = o["status"] in ["new", "pending_new", "accepted", "partially_filled"]
+
+        too_old =
+          case parse_dt(o["created_at"]) do
+            %DateTime{} = ts -> DateTime.compare(ts, cutoff) == :lt
+            _ -> false
+          end
+
+        in_pending and too_old
       end)
 
-    if pending != [] do
-      Logger.info("[Reaper] cancelling #{length(pending)} pending orders to clear PDT blocks")
-      AlpacaTrader.Alpaca.Client.cancel_all_orders()
+    if stale != [] do
+      Logger.info("[Reaper] cancelling #{length(stale)} stale (>5min) pending orders")
+
+      Enum.each(stale, fn o ->
+        AlpacaTrader.Alpaca.Client.cancel_order(o["id"])
+      end)
     end
   end
+
+  defp parse_dt(nil), do: nil
+
+  defp parse_dt(s) when is_binary(s) do
+    case DateTime.from_iso8601(s) do
+      {:ok, dt, _} -> dt
+      _ -> nil
+    end
+  end
+
+  defp parse_dt(_), do: nil
 
   defp cancel_pending_orders(_ctx), do: :ok
 

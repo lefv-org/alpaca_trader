@@ -158,18 +158,38 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   def scan(state, ctx) do
     long_only = Application.get_env(:alpaca_trader, :long_only_mode, true)
 
-    case Client.latest_stock_quotes_with_sizes(state.symbols) do
-      {:ok, quotes} when map_size(quotes) > 0 ->
-        {signals, new_state} = evaluate_quotes(quotes, state, ctx, long_only)
-        {:ok, signals, new_state}
+    quotes = fetch_quotes_per_symbol(state.symbols)
 
-      {:ok, _empty} ->
-        {:ok, [], state}
-
-      {:error, reason} ->
-        Logger.warning("[AS] quote fetch failed: #{inspect(reason)}")
-        {:ok, [], state}
+    if map_size(quotes) > 0 do
+      {signals, new_state} = evaluate_quotes(quotes, state, ctx, long_only)
+      {:ok, signals, new_state}
+    else
+      {:ok, [], state}
     end
+  end
+
+  # Per-symbol quote fetch that routes equity vs crypto symbols to the
+  # right Alpaca endpoint. The previous code called
+  # `latest_stock_quotes_with_sizes` for ALL symbols — which 400s for
+  # crypto symbols (\"invalid symbol: BTC/USD\") because that endpoint
+  # only serves /v2/stocks/quotes/latest. We were getting one error per
+  # crypto symbol per scan and zero AS signals on the symbols that
+  # actually pass the PDT gate.
+  defp fetch_quotes_per_symbol(symbols) do
+    Enum.reduce(symbols, %{}, fn symbol, acc ->
+      case Client.latest_quote(symbol) do
+        {:ok, %{bid: bid, ask: ask}} ->
+          # Synthesise the string-keyed shape that extract_bid_ask
+          # already understands, with size=1 since latest_quote drops
+          # sizes. AS uses sizes only when OFI alpha is enabled; minute
+          # cadence + the single-symbol endpoint make sizes noise anyway.
+          Map.put(acc, symbol, %{"bp" => bid, "ap" => ask, "bs" => 1, "as" => 1})
+
+        {:error, reason} ->
+          Logger.debug("[AS] quote fetch failed for #{symbol}: #{inspect(reason)}")
+          acc
+      end
+    end)
   end
 
   @impl true

@@ -118,8 +118,16 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         # gate we close the store record before the buy fills → block
         # legitimate trade.
         case AlpacaTrader.PairPositionStore.find_open_for_asset(ctx.symbol) do
-          %AlpacaTrader.PairPositionStore.PairPosition{id: id, bars_held: bh} when bh >= 2 ->
+          %AlpacaTrader.PairPositionStore.PairPosition{
+            id: id,
+            bars_held: bh,
+            asset_a: a,
+            asset_b: b
+          }
+          when bh >= 2 ->
             AlpacaTrader.PairPositionStore.close_position(id)
+            # Cooldown the pair to break the buy/sync/buy/sync churn loop.
+            AlpacaTrader.Engine.mark_broken_pair_external(a, b)
 
             Logger.info(
               "[Trade] ⏸ HOLD #{ctx.symbol}: store record synced closed (no held qty, bars=#{bh})"

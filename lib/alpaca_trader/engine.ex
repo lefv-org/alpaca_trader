@@ -730,8 +730,16 @@ defmodule AlpacaTrader.Engine do
           # so try both forms before giving up.
           case PairPositionStore.find_open_for_asset(symbol) ||
                  PairPositionStore.find_open_for_asset(restore_crypto_slash(symbol)) do
-            %PairPositionStore.PairPosition{id: id} -> PairPositionStore.close_position(id)
-            _ -> :ok
+            %PairPositionStore.PairPosition{id: id, asset_a: a, asset_b: b} ->
+              PairPositionStore.close_position(id)
+              # Also blacklist the pair so we don't re-enter the same
+              # configuration on the next scan. Reaper closes are usually
+              # because the long leg moved against us — chasing it back
+              # in immediately is fee-bleed, not alpha.
+              mark_broken_pair(a, b)
+
+            _ ->
+              :ok
           end
 
           [
@@ -1642,6 +1650,12 @@ defmodule AlpacaTrader.Engine do
     ensure_broken_pair_table()
     :ets.insert(@broken_pairs_table, {broken_pair_key(a, b), System.monotonic_time(:millisecond)})
     :ok
+  end
+
+  @doc false
+  # Public bridge so OrderExecutor can blacklist a pair after a soft sync-close.
+  def mark_broken_pair_external(a, b) when is_binary(a) and is_binary(b) do
+    mark_broken_pair(a, b)
   end
 
   defp recently_broken?(a, b) when is_binary(a) and is_binary(b) do

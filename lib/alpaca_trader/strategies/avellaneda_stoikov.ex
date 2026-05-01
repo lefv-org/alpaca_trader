@@ -73,6 +73,21 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   @default_window 30
   @default_min_bars 20
 
+  # Anti-hysteresis (Hummingbot order_refresh_tolerance_pct): if a fresh
+  # quote crosses our quote by less than this fraction of mid, suppress
+  # the signal — avoid burning fees on noise-level re-quotes. 0.001 = 10 bps.
+  @default_refresh_tolerance_pct 0.001
+
+  # GLFT volatility-scaled half-spread coefficient (hftbacktest GLFT model).
+  # half = (γσ² + (2/γ)ln(1+γ/κ)) * (1 + glft_c·σ) / 2
+  # 0.0 disables (pure Avellaneda-Stoikov).
+  @default_glft_c 0.0
+
+  # Size-skew exponent (Hummingbot inventory eta transform). When inventory
+  # q is positive, buys shrink by exp(-eta·q) and sells grow by exp(eta·q).
+  # 0.0 disables (constant size).
+  @default_size_eta 0.5
+
   # ── Strategy callbacks ────────────────────────────────────────────────────────
 
   @impl true
@@ -95,12 +110,24 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
         resolve_float(config, :target_inventory, "AS_TARGET_INV", @default_target_inventory),
       window_bars: resolve_int(config, :window_bars, "AS_WINDOW", @default_window),
       min_bars: resolve_int(config, :min_bars, "AS_MIN_BARS", @default_min_bars),
-      open_positions: %{}
+      refresh_tolerance_pct:
+        resolve_float(
+          config,
+          :refresh_tolerance_pct,
+          "AS_REFRESH_TOLERANCE_PCT",
+          @default_refresh_tolerance_pct
+        ),
+      glft_c: resolve_float(config, :glft_c, "AS_GLFT_C", @default_glft_c),
+      size_eta: resolve_float(config, :size_eta, "AS_SIZE_ETA", @default_size_eta),
+      open_positions: %{},
+      # Last quoted bid/ask per symbol — drives anti-hysteresis suppression.
+      last_quotes: %{}
     }
 
     Logger.info(
       "[AS] init symbols=#{inspect(state.symbols)} γ=#{state.gamma} κ=#{state.kappa} " <>
-        "notional=#{state.notional_per_leg} target_inv=$#{state.target_inventory}"
+        "notional=#{state.notional_per_leg} target_inv=$#{state.target_inventory} " <>
+        "refresh_tol=#{state.refresh_tolerance_pct} glft_c=#{state.glft_c} eta=#{state.size_eta}"
     )
 
     {:ok, state}
@@ -112,8 +139,8 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
 
     case Client.latest_stock_quotes_with_sizes(state.symbols) do
       {:ok, quotes} when map_size(quotes) > 0 ->
-        signals = evaluate_quotes(quotes, state, ctx, long_only)
-        {:ok, signals, state}
+        {signals, new_state} = evaluate_quotes(quotes, state, ctx, long_only)
+        {:ok, signals, new_state}
 
       {:ok, _empty} ->
         {:ok, [], state}
@@ -141,10 +168,10 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   # ── Core logic ────────────────────────────────────────────────────────────────
 
   defp evaluate_quotes(quotes, state, ctx, long_only) do
-    Enum.reduce(quotes, [], fn {symbol, quote}, acc ->
-      case build_signal_for(symbol, quote, state, ctx, long_only) do
-        nil -> acc
-        sig -> [sig | acc]
+    Enum.reduce(quotes, {[], state}, fn {symbol, quote}, {sigs, st} ->
+      case build_signal_for(symbol, quote, st, ctx, long_only) do
+        {nil, new_st} -> {sigs, new_st}
+        {sig, new_st} -> {[sig | sigs], new_st}
       end
     end)
   end
@@ -154,33 +181,66 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
          true <- bid > 0.0 and ask > 0.0,
          {:ok, sigma2} <- compute_sigma_squared(symbol, state) do
       mid = (bid + ask) / 2.0
+      sigma = :math.sqrt(sigma2)
       q = inventory_norm(symbol, mid, ctx, state)
 
       # Inventory-skewed reservation price
       r = mid - q * state.gamma * sigma2 * mid
 
-      # Optimal half-spread (in price units)
-      half_spread =
+      # Optimal half-spread (in price units), with optional GLFT volatility
+      # scaling (hftbacktest GLFT model). glft_c=0 → pure A-S.
+      base_half =
         (state.gamma * sigma2 +
            2.0 / state.gamma * :math.log(1.0 + state.gamma / state.kappa)) / 2.0 * mid
+
+      half_spread = base_half * (1.0 + state.glft_c * sigma)
 
       bid_quote = r - half_spread
       ask_quote = r + half_spread
 
-      cond do
-        # Market crossing our bid: someone selling cheap to us → BUY
-        ask <= bid_quote ->
-          maybe_buy_signal(symbol, ask, bid_quote, ask_quote, q, sigma2, state)
+      # Anti-hysteresis: skip if new quotes lie within tolerance of the
+      # previously-seen quotes (Hummingbot order_refresh_tolerance_pct).
+      if quotes_within_tolerance?(symbol, bid_quote, ask_quote, mid, state) do
+        {nil, state}
+      else
+        new_state = put_in(state.last_quotes[symbol], {bid_quote, ask_quote})
 
-        # Market crossing our ask: someone buying expensive from us → SELL
-        bid >= ask_quote ->
-          maybe_sell_signal(symbol, bid, bid_quote, ask_quote, q, sigma2, state, long_only)
+        sig =
+          cond do
+            ask <= bid_quote ->
+              maybe_buy_signal(symbol, ask, bid_quote, ask_quote, q, sigma2, new_state)
 
-        true ->
-          nil
+            bid >= ask_quote ->
+              maybe_sell_signal(
+                symbol,
+                bid,
+                bid_quote,
+                ask_quote,
+                q,
+                sigma2,
+                new_state,
+                long_only
+              )
+
+            true ->
+              nil
+          end
+
+        {sig, new_state}
       end
     else
-      _ -> nil
+      _ -> {nil, state}
+    end
+  end
+
+  defp quotes_within_tolerance?(symbol, new_bid_q, new_ask_q, mid, state) do
+    case Map.get(state.last_quotes, symbol) do
+      nil ->
+        false
+
+      {prev_bid_q, prev_ask_q} ->
+        tol = state.refresh_tolerance_pct * mid
+        abs(new_bid_q - prev_bid_q) < tol and abs(new_ask_q - prev_ask_q) < tol
     end
   end
 
@@ -201,7 +261,7 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
             venue: :alpaca,
             symbol: symbol,
             side: :buy,
-            size: Decimal.from_float(state.notional_per_leg),
+            size: Decimal.from_float(skewed_size(:buy, q, state)),
             size_mode: :notional,
             type: :market,
             limit_price: nil
@@ -234,7 +294,7 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
               venue: :alpaca,
               symbol: symbol,
               side: :sell,
-              size: Decimal.from_float(state.notional_per_leg),
+              size: Decimal.from_float(skewed_size(:sell, q, state)),
               size_mode: :notional,
               type: :market,
               limit_price: nil
@@ -314,6 +374,25 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
 
   defp f(n) when is_float(n), do: Float.round(n, 4) |> Float.to_string()
   defp f(n), do: to_string(n)
+
+  # Inventory-skewed size (Hummingbot eta transform).
+  # When inventory q is positive (long), buys shrink and sells grow:
+  #   buy_size  = notional * exp(-eta * q)
+  #   sell_size = notional * exp( eta * q)
+  # The exponential ensures size stays positive and decays smoothly. Floor
+  # at 10% of notional so we never round to zero on tiny moves; cap at 2x
+  # so size doesn't run away.
+  defp skewed_size(side, q, %{notional_per_leg: base, size_eta: 0.0}), do: base * 1.0
+
+  defp skewed_size(side, q, %{notional_per_leg: base, size_eta: eta}) do
+    factor =
+      case side do
+        :buy -> :math.exp(-eta * q)
+        :sell -> :math.exp(eta * q)
+      end
+
+    base * max(0.1, min(factor, 2.0))
+  end
 
   # ── Config resolvers ──────────────────────────────────────────────────────────
 

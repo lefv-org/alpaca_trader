@@ -84,7 +84,9 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         # list while /v2/positions/<symbol> still returns the live qty.
         # For equities the cached list is authoritative.
         if String.contains?(target, "/") do
-          fetch_position_qty(target_no_slash) || fetch_position_qty(target) || 0.0
+          qty = fetch_position_qty(target_no_slash) || fetch_position_qty(target) || 0.0
+          Logger.info("[OrderExecutor] crypto fallback #{target} -> qty=#{qty}")
+          qty
         else
           0.0
         end

@@ -1828,7 +1828,7 @@ defmodule AlpacaTrader.Engine do
   # 2. Both legs must have at least @min_entry_bars recent closes — without
   #    enough history, the pair often computes a z that's noise, then
   #    becomes uncomputable on the next scan (PAIR BROKEN churn).
-  @min_entry_bars 30
+  @min_entry_bars 15
 
   defp pair_cointegration_valid?(a, b) when is_binary(a) and is_binary(b) do
     with {:ok, ca} <- get_best_closes(a),

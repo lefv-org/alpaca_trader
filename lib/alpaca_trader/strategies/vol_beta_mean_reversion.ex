@@ -54,7 +54,9 @@ defmodule AlpacaTrader.Strategies.VolBetaMeanReversion do
   alias AlpacaTrader.BarsStore
 
   @conviction 0.68
-  @default_pairs [{"SPY", "QQQ"}, {"AAPL", "MSFT"}, {"GLD", "TLT"}, {"XLF", "XLK"}]
+  # Default to crypto pairs from the curated Universe — equity pairs
+  # get PDT-blocked on sub-$25k accounts. Override via VBMR_PAIRS env.
+  defp default_pairs, do: AlpacaTrader.Universe.crypto_pairs()
 
   # ── Strategy callbacks ────────────────────────────────────────────────────────
 
@@ -269,7 +271,7 @@ defmodule AlpacaTrader.Strategies.VolBetaMeanReversion do
   defp resolve_pairs(_config) do
     case System.get_env("VBMR_PAIRS") do
       nil ->
-        @default_pairs
+        default_pairs()
 
       csv ->
         csv

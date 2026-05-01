@@ -65,7 +65,9 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   # Conviction kept above default LLM gate threshold (0.5).
   @conviction 0.7
 
-  @default_symbols ~w[SPY QQQ AAPL MSFT NVDA]
+  # Default to crypto universe — equity entries get PDT-blocked on
+  # sub-$25k accounts. Override via AS_SYMBOLS env.
+  defp default_symbols, do: AlpacaTrader.Universe.crypto_liquid()
   @default_gamma 0.1
   @default_kappa 1.5
   @default_notional 5.0
@@ -115,7 +117,7 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   @impl true
   def init(config) do
     state = %{
-      symbols: resolve_list(config, :symbols, "AS_SYMBOLS", @default_symbols),
+      symbols: resolve_list(config, :symbols, "AS_SYMBOLS", default_symbols()),
       gamma: resolve_float(config, :gamma, "AS_GAMMA", @default_gamma),
       kappa: resolve_float(config, :kappa, "AS_KAPPA", @default_kappa),
       notional_per_leg:

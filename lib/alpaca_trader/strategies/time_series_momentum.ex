@@ -54,8 +54,9 @@ defmodule AlpacaTrader.Strategies.TimeSeriesMomentum do
   @max_size_factor 5.0
   @min_size_factor 0.1
 
-  # Defaults if AS_SYMBOLS env unset.
-  @default_symbols ~w[SPY QQQ DIA IWM GLD TLT]
+  # Defaults to crypto universe — equity-equity TSM gets PDT-blocked
+  # on small accounts. Override with TSM_SYMBOLS env.
+  defp default_symbols, do: AlpacaTrader.Universe.crypto_liquid()
 
   @impl true
   def id, do: :time_series_momentum
@@ -68,7 +69,7 @@ defmodule AlpacaTrader.Strategies.TimeSeriesMomentum do
   @impl true
   def init(config) do
     state = %{
-      symbols: resolve_list(config, :symbols, "TSM_SYMBOLS", @default_symbols),
+      symbols: resolve_list(config, :symbols, "TSM_SYMBOLS", default_symbols()),
       vol_target: resolve_float(config, :vol_target, "TSM_VOL_TARGET", @vol_target),
       base_notional: resolve_float(config, :base_notional, "TSM_NOTIONAL", 5.0),
       lookback_bars: resolve_int(config, :lookback_bars, "TSM_LOOKBACK", @lookback_bars),

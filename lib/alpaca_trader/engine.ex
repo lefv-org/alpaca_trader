@@ -1675,18 +1675,23 @@ defmodule AlpacaTrader.Engine do
       not pair_cointegration_valid?(a, b)
   end
 
-  # Cointegration sanity check at ENTRY time. If the engine cannot compute
-  # a z-score now, it certainly cannot exit cleanly later. Reject the
-  # entry rather than enter a pair that will immediately PAIR BROKEN.
-  # Cached briefly (60s) to amortize cost across the scan cycle.
+  # Cointegration sanity check at ENTRY time. Two checks:
+  # 1. recompute_z_score must succeed RIGHT NOW.
+  # 2. Both legs must have at least @min_entry_bars recent closes — without
+  #    enough history, the pair often computes a z that's noise, then
+  #    becomes uncomputable on the next scan (PAIR BROKEN churn).
+  @min_entry_bars 30
+
   defp pair_cointegration_valid?(a, b) when is_binary(a) and is_binary(b) do
-    case recompute_z_score(a, b) do
-      nil ->
+    with {:ok, ca} <- get_best_closes(a),
+         {:ok, cb} <- get_best_closes(b),
+         true <- length(ca) >= @min_entry_bars and length(cb) >= @min_entry_bars,
+         result when not is_nil(result) <- recompute_z_score(a, b) do
+      true
+    else
+      _ ->
         mark_broken_pair(a, b)
         false
-
-      _result ->
-        true
     end
   end
 

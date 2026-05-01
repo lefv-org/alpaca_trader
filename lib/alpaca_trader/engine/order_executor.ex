@@ -111,17 +111,18 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         )
 
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
-        # Long-only pair exit with nothing held: real broker exposure is 0
-        # but PairPositionStore may still track an "open" record (from a
-        # prior reaper close that didn't sync, or a pending buy that was
-        # rejected post-tracking). Sync the store closed so the next scan
-        # doesn't keep firing dead exit signals indefinitely.
+        # Long-only pair exit with nothing held: real broker exposure is 0.
+        # PairPositionStore may still track "open" but only sync-close it
+        # when bars_held >= 2 — gives newly-opened positions a grace
+        # window for the buy order to fill on Alpaca's side. Without the
+        # gate we close the store record before the buy fills → block
+        # legitimate trade.
         case AlpacaTrader.PairPositionStore.find_open_for_asset(ctx.symbol) do
-          %AlpacaTrader.PairPositionStore.PairPosition{id: id} ->
+          %AlpacaTrader.PairPositionStore.PairPosition{id: id, bars_held: bh} when bh >= 2 ->
             AlpacaTrader.PairPositionStore.close_position(id)
 
             Logger.info(
-              "[Trade] ⏸ HOLD #{ctx.symbol}: store record synced closed (no held qty)"
+              "[Trade] ⏸ HOLD #{ctx.symbol}: store record synced closed (no held qty, bars=#{bh})"
             )
 
           _ ->

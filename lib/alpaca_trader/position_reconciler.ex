@@ -27,8 +27,14 @@ defmodule AlpacaTrader.PositionReconciler do
   """
   def reconcile do
     with {:ok, alpaca_positions} <- list_alpaca_positions() do
-      alpaca_symbols = MapSet.new(alpaca_positions, & &1["symbol"])
-      tracked_symbols = tracked_symbols()
+      # Alpaca returns crypto without a slash (ETHUSD, BTCUSD); the
+      # PairPositionStore stores them with one (ETH/USD, BTC/USD) because
+      # that's the form used for order submission. Normalise both sides
+      # to a canonical no-slash form for set comparison so a held ETH
+      # position isn't perpetually flagged as orphan + ghost simultaneously,
+      # which blocks every new entry via the engine's pre-flight check.
+      alpaca_symbols = MapSet.new(alpaca_positions, &normalize_symbol(&1["symbol"]))
+      tracked_symbols = tracked_symbols() |> Enum.map(&normalize_symbol/1) |> MapSet.new()
 
       orphans = MapSet.difference(alpaca_symbols, tracked_symbols)
       ghosts = MapSet.difference(tracked_symbols, alpaca_symbols)
@@ -71,9 +77,16 @@ defmodule AlpacaTrader.PositionReconciler do
   def orphan?(symbol) when is_binary(symbol) do
     case :persistent_term.get(@orphans_key, nil) do
       nil -> false
-      set -> MapSet.member?(set, symbol)
+      set -> MapSet.member?(set, normalize_symbol(symbol))
     end
   end
+
+  # Canonical no-slash form. ETH/USD → ETHUSD, AAPL → AAPL.
+  # Used at the orphan-set boundary so crypto symbols compare consistently
+  # regardless of whether they came from Alpaca's positions endpoint
+  # (no slash) or our internal PairPositionStore (with slash).
+  defp normalize_symbol(nil), do: ""
+  defp normalize_symbol(s) when is_binary(s), do: String.replace(s, "/", "")
 
   @doc "The current orphan set. Empty set if reconcile/0 has not run."
   def orphans do

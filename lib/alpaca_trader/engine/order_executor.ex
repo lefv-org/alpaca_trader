@@ -79,9 +79,15 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         _ -> 0.0
       end
 
-    Logger.debug(
-      "[OrderExecutor] held_qty(#{target}): n_positions=#{length(positions)} found=#{found != nil} qty=#{qty}"
-    )
+    if found == nil do
+      symbols = positions |> Enum.map(& &1["symbol"]) |> Enum.sort() |> Enum.join(",")
+
+      Logger.info(
+        "[OrderExecutor] held_qty MISS #{target}: n=#{length(positions)} symbols=#{symbols}"
+      )
+    else
+      Logger.debug("[OrderExecutor] held_qty(#{target})=#{qty}")
+    end
 
     qty
   end

@@ -676,13 +676,19 @@ defmodule AlpacaTrader.Engine do
     reaped = close_positions(losers, "stale")
 
     # Phase 2: deadlock breaker — if we still can't afford an entry, close
-    # any closeable position to free capital, worst performers first
+    # closeable LOSING positions to free capital. Winning positions are
+    # NEVER closed by deadlock break — that's a profitable mean-reversion
+    # in progress; killing it locks in fees and forfeits alpha.
     if not can_afford_entry?(ctx) and reaped == [] do
       closeable =
         positions
         |> Enum.filter(fn pos ->
           symbol = pos["symbol"]
-          not Map.has_key?(pdt_blocked, symbol) and closeable_position?(pos, market_open?)
+          plpc = parse_float(pos["unrealized_plpc"]) || 0.0
+
+          not Map.has_key?(pdt_blocked, symbol) and
+            closeable_position?(pos, market_open?) and
+            plpc < 0
         end)
         |> Enum.sort_by(fn pos -> parse_float(pos["unrealized_plpc"]) || 0.0 end)
 

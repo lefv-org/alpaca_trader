@@ -850,6 +850,18 @@ defmodule AlpacaTrader.Engine do
   # ── LLM CONVICTION GATE ─────────────────────────────────────
 
   defp gate_and_enter(ctx, arb) do
+    # Re-check the entry filter immediately before execution. Exits earlier
+    # in the same scan may have set per-asset/pair cooldowns that the
+    # scan-time filter couldn't see.
+    if entry_for_already_held?(arb) do
+      shadow_record_blocked(arb, [:cooldown])
+      []
+    else
+      do_gate_and_enter(ctx, arb)
+    end
+  end
+
+  defp do_gate_and_enter(ctx, arb) do
     # Cheap checks first, expensive LLM last.
     # 1. PDT block: when account is sub-$25k and recently traded, skip equity
     #    entries entirely (any same-day close = day trade, freezes account at 4).

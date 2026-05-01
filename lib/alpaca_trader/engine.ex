@@ -157,9 +157,14 @@ defmodule AlpacaTrader.Engine do
     profit_target = params.profit_target
     cut_loss = params.stop_loss
 
-    # Update tracking
+    # Update tracking — only count this scan as a real "bar held" when
+    # recompute_z_score returned a fresh measurement. Without this, a
+    # pair whose one leg has stale bars (no minute-cache + thin daily
+    # data) accumulates bars_held without ever updating z, then trips
+    # the half-life time-stop and forces a spread-loss exit on data
+    # that never had a chance to mean-revert.
     z = if current, do: current.z_score, else: pos.current_z_score
-    PairPositionStore.tick(pos.id, z)
+    PairPositionStore.tick(pos.id, z, fresh: not is_nil(current))
 
     # Compute trend strength for flip gate
     spread_series = recompute_spread_series(pos.asset_a, pos.asset_b)

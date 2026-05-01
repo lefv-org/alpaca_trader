@@ -62,6 +62,19 @@ defmodule AlpacaTrader.PairPositionStoreTest do
     assert updated2.current_z_score == 0.8
   end
 
+  test "tick with fresh: false does NOT increment bars_held" do
+    {:ok, pos} = open_test_position()
+    {:ok, after_fresh} = PairPositionStore.tick(pos.id, 1.5)
+    assert after_fresh.bars_held == 1
+
+    {:ok, after_stale} = PairPositionStore.tick(pos.id, 1.5, fresh: false)
+    assert after_stale.bars_held == 1, "stale tick should not advance bars_held"
+
+    {:ok, after_fresh2} = PairPositionStore.tick(pos.id, 1.0)
+    assert after_fresh2.bars_held == 2
+    assert after_fresh2.current_z_score == 1.0
+  end
+
   test "close_position marks as closed" do
     {:ok, pos} = open_test_position()
     {:ok, closed} = PairPositionStore.close_position(pos.id)

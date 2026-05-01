@@ -128,14 +128,30 @@ defmodule AlpacaTrader.PairPositionStore do
     end)
   end
 
-  @doc "Update the current z-score and increment bars_held for a position."
-  def tick(id, current_z_score) do
+  @doc """
+  Update the current z-score and increment bars_held for a position.
+
+  When `fresh: false` is passed, the z-score is recorded as the prior
+  value but bars_held is NOT incremented. This avoids the case where
+  recompute_z_score returns nil for an open position (one leg's bars
+  went stale), the engine ticks with the *same* z-score, bars_held
+  ratchets up anyway, and the half-life-based time-stop fires after
+  N bars even though no actual mean-reversion measurement happened.
+
+  Default fresh: true preserves the original semantics for callers
+  that pass a fresh recompute.
+  """
+  def tick(id, current_z_score, opts \\ []) do
+    fresh = Keyword.get(opts, :fresh, true)
+
     case :ets.lookup(@table, id) do
       [{^id, %PairPosition{} = pos}] ->
+        bars_held = if fresh, do: pos.bars_held + 1, else: pos.bars_held
+
         updated = %PairPosition{
           pos
           | current_z_score: current_z_score,
-            bars_held: pos.bars_held + 1,
+            bars_held: bars_held,
             last_updated: DateTime.utc_now()
         }
 

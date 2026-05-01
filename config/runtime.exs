@@ -278,6 +278,9 @@ if config_env() != :test do
 
   config :alpaca_trader, :strategies, [
     {AlpacaTrader.Strategies.PairCointegration, %{}},
-    {AlpacaTrader.Strategies.FundingBasisArb, %{}}
+    {AlpacaTrader.Strategies.FundingBasisArb, %{}},
+    {AlpacaTrader.Strategies.OrderBookImbalance, %{}},
+    {AlpacaTrader.Strategies.VolBetaMeanReversion, %{}},
+    {AlpacaTrader.Strategies.AvellanedaStoikov, %{}}
   ]
 end

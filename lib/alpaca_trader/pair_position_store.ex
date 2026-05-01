@@ -172,7 +172,7 @@ defmodule AlpacaTrader.PairPositionStore do
         # Open reversed position with flip tracking
         new_consecutive = if was_profitable, do: 0, else: pos.consecutive_losses + 1
 
-        {:ok, new_pos} =
+        {:ok, %PairPosition{} = new_pos} =
           open_position(%{
             asset_a: pos.asset_a,
             asset_b: pos.asset_b,
@@ -185,7 +185,7 @@ defmodule AlpacaTrader.PairPositionStore do
           })
 
         # Update flip tracking on new position
-        flipped = %PairPosition{
+        flipped = %{
           new_pos
           | flip_count: pos.flip_count + 1,
             consecutive_losses: new_consecutive,

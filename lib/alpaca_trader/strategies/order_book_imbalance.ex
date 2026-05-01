@@ -117,6 +117,12 @@ defmodule AlpacaTrader.Strategies.OrderBookImbalance do
     end)
   end
 
+  # First time we see this symbol — just record the quote, no signal yet.
+  defp process_quote(symbol, quote, nil, _already_traded, state, _long_only) do
+    new_state = %{state | prev_quotes: Map.put(state.prev_quotes, symbol, quote)}
+    {[], new_state}
+  end
+
   defp process_quote(symbol, quote, prev, _already_traded, state, long_only)
        when is_map(prev) do
     # Alpaca's /v2/stocks/quotes/latest returns string-keyed maps
@@ -197,12 +203,6 @@ defmodule AlpacaTrader.Strategies.OrderBookImbalance do
     }
 
     {signals, new_state}
-  end
-
-  # First time we see this symbol — just record the quote, no signal yet.
-  defp process_quote(symbol, quote, nil, _already_traded, state, _long_only) do
-    new_state = %{state | prev_quotes: Map.put(state.prev_quotes, symbol, quote)}
-    {[], new_state}
   end
 
   # Tolerant quote extractor: accepts Alpaca's string-keyed shape

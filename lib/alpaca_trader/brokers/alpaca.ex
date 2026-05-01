@@ -109,7 +109,21 @@ defmodule AlpacaTrader.Brokers.Alpaca do
       :notional -> %{"notional" => Decimal.to_string(Decimal.round(o.size, 2), :normal)}
       :pct_equity -> raise "pct_equity size_mode must be resolved by router before submit"
     end
-    Map.merge(base, size)
+
+    # Limit orders need a limit_price; without it Alpaca returns 422
+    # "limit orders require a limit price". OBI emits limit legs from
+    # check_imbalance/8, so this path was silently rejected on every
+    # OBI signal.
+    extras =
+      case {o.type, o.limit_price} do
+        {:limit, %Decimal{} = lp} -> %{"limit_price" => Decimal.to_string(lp, :normal)}
+        {:limit, lp} when is_number(lp) -> %{"limit_price" => "#{lp}"}
+        _ -> %{}
+      end
+
+    base
+    |> Map.merge(size)
+    |> Map.merge(extras)
   end
 
   # Alpaca rejects "day" time_in_force on crypto symbols (24/7 market —

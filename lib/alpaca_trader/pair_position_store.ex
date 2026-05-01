@@ -250,8 +250,14 @@ defmodule AlpacaTrader.PairPositionStore do
     # destroy them.
     for name <- [:engine_broken_pairs, :engine_recent_close_assets, :engine_nil_z_streak] do
       case :ets.info(name) do
-        :undefined -> :ets.new(name, [:named_table, :set, :public])
-        _ -> :ok
+        :undefined ->
+          :ets.new(name, [:named_table, :set, :public])
+          require Logger
+          Logger.info("[PairPositionStore] created ETS table #{name}")
+
+        info ->
+          require Logger
+          Logger.info("[PairPositionStore] ETS table #{name} already exists owner=#{inspect(Keyword.get(info, :owner))}")
       end
     end
 

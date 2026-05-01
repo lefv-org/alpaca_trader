@@ -1654,25 +1654,11 @@ defmodule AlpacaTrader.Engine do
   @broken_pair_cooldown_ms 60 * 60 * 1000
   @recent_close_cooldown_ms 15 * 60 * 1000
 
-  defp ensure_broken_pair_table do
-    case :ets.info(@broken_pairs_table) do
-      :undefined ->
-        :ets.new(@broken_pairs_table, [:named_table, :set, :public])
-
-      _ ->
-        @broken_pairs_table
-    end
-  end
-
-  defp ensure_recent_close_assets_table do
-    case :ets.info(@recent_close_assets_table) do
-      :undefined ->
-        :ets.new(@recent_close_assets_table, [:named_table, :set, :public])
-
-      _ ->
-        @recent_close_assets_table
-    end
-  end
+  # No-op: tables are created/owned by PairPositionStore.init/1. Calling
+  # :ets.new from a transient scheduler task would set the task as owner
+  # and the table would die when the task exited.
+  defp ensure_broken_pair_table, do: @broken_pairs_table
+  defp ensure_recent_close_assets_table, do: @recent_close_assets_table
 
   defp broken_pair_key(a, b) do
     [a, b] |> Enum.sort() |> Enum.join("|")
@@ -1763,12 +1749,7 @@ defmodule AlpacaTrader.Engine do
   # Reset on any successful read; increment on nil.
   @nil_z_table :engine_nil_z_streak
 
-  defp ensure_nil_z_table do
-    case :ets.info(@nil_z_table) do
-      :undefined -> :ets.new(@nil_z_table, [:named_table, :set, :public])
-      _ -> @nil_z_table
-    end
-  end
+  defp ensure_nil_z_table, do: @nil_z_table
 
   defp consecutive_nil_z(pos) do
     ensure_nil_z_table()

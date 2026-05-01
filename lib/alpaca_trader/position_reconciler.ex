@@ -58,7 +58,7 @@ defmodule AlpacaTrader.PositionReconciler do
         Logger.warning(
           "[Reconciler] ghost tracked positions (not on Alpaca): " <>
             (ghosts |> Enum.to_list() |> Enum.join(", ")) <>
-            " — closing stale tracker entries"
+            " — closing pair-store entries only when BOTH legs are ghost"
         )
 
         close_ghost_entries(ghosts)

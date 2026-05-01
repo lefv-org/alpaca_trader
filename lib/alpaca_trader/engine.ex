@@ -1701,8 +1701,18 @@ defmodule AlpacaTrader.Engine do
     now = System.monotonic_time(:millisecond)
 
     case :ets.lookup(@recent_close_assets_table, asset) do
-      [{_, ts}] -> now - ts < @recent_close_cooldown_ms
-      _ -> false
+      [{_, ts}] ->
+        active = now - ts < @recent_close_cooldown_ms
+
+        Logger.debug(
+          "[Engine] cooldown lookup #{asset}: ts=#{ts} now=#{now} dt=#{now - ts}ms active=#{active}"
+        )
+
+        active
+
+      _ ->
+        Logger.debug("[Engine] cooldown lookup #{asset}: not found")
+        false
     end
   end
 

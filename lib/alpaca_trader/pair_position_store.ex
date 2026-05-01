@@ -244,6 +244,17 @@ defmodule AlpacaTrader.PairPositionStore do
   @impl true
   def init(_) do
     table = :ets.new(@table, [:named_table, :set, :public, read_concurrency: true])
+
+    # Engine cooldown tables — owned by this long-lived GenServer so they
+    # outlive transient scheduler tasks that would otherwise create then
+    # destroy them.
+    for name <- [:engine_broken_pairs, :engine_recent_close_assets, :engine_nil_z_streak] do
+      case :ets.info(name) do
+        :undefined -> :ets.new(name, [:named_table, :set, :public])
+        _ -> :ok
+      end
+    end
+
     load_from_disk()
     {:ok, %{table: table}}
   end

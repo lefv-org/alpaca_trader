@@ -732,11 +732,14 @@ defmodule AlpacaTrader.Engine do
                  PairPositionStore.find_open_for_asset(restore_crypto_slash(symbol)) do
             %PairPositionStore.PairPosition{id: id, asset_a: a, asset_b: b} ->
               PairPositionStore.close_position(id)
-              # Also blacklist the pair so we don't re-enter the same
-              # configuration on the next scan. Reaper closes are usually
-              # because the long leg moved against us — chasing it back
-              # in immediately is fee-bleed, not alpha.
+              # Also blacklist the pair AND both legs so we don't re-enter
+              # the same configuration (or any pair targeting these legs)
+              # on the next scan. Reaper closes are usually because the
+              # long leg moved against us — chasing it back in immediately
+              # is fee-bleed, not alpha.
               mark_broken_pair(a, b)
+              mark_recently_closed_asset(a)
+              mark_recently_closed_asset(b)
 
             _ ->
               :ok
@@ -1626,11 +1629,17 @@ defmodule AlpacaTrader.Engine do
     {length(results) + length(discovery_hits), deduped_hits}
   end
 
-  # Persistent-ish broken-pair cooldown. ETS table stores `{normalized_key,
-  # marked_at_ms}`. Pairs that exited via PAIR BROKEN within the cooldown
-  # window are skipped at entry.
+  # In-process cooldowns for recently-closed pairs and assets.
+  # `:engine_broken_pairs` keys by sorted pair tuple; entries blocked when
+  #   any signal targets that exact pair.
+  # `:engine_recent_close_assets` keys by the long leg of the just-closed
+  #   position; blocks re-entry on any pair whose long leg matches —
+  #   prevents the same crypto from being bought via multiple pair
+  #   signals after a fresh close.
   @broken_pairs_table :engine_broken_pairs
+  @recent_close_assets_table :engine_recent_close_assets
   @broken_pair_cooldown_ms 60 * 60 * 1000
+  @recent_close_cooldown_ms 15 * 60 * 1000
 
   defp ensure_broken_pair_table do
     case :ets.info(@broken_pairs_table) do
@@ -1639,6 +1648,16 @@ defmodule AlpacaTrader.Engine do
 
       _ ->
         @broken_pairs_table
+    end
+  end
+
+  defp ensure_recent_close_assets_table do
+    case :ets.info(@recent_close_assets_table) do
+      :undefined ->
+        :ets.new(@recent_close_assets_table, [:named_table, :set, :public])
+
+      _ ->
+        @recent_close_assets_table
     end
   end
 
@@ -1652,10 +1671,35 @@ defmodule AlpacaTrader.Engine do
     :ok
   end
 
+  defp mark_recently_closed_asset(asset) when is_binary(asset) do
+    ensure_recent_close_assets_table()
+
+    :ets.insert(
+      @recent_close_assets_table,
+      {asset, System.monotonic_time(:millisecond)}
+    )
+
+    :ok
+  end
+
+  defp recently_closed_asset?(asset) when is_binary(asset) do
+    ensure_recent_close_assets_table()
+    now = System.monotonic_time(:millisecond)
+
+    case :ets.lookup(@recent_close_assets_table, asset) do
+      [{_, ts}] -> now - ts < @recent_close_cooldown_ms
+      _ -> false
+    end
+  end
+
+  defp recently_closed_asset?(_), do: false
+
   @doc false
   # Public bridge so OrderExecutor can blacklist a pair after a soft sync-close.
   def mark_broken_pair_external(a, b) when is_binary(a) and is_binary(b) do
     mark_broken_pair(a, b)
+    mark_recently_closed_asset(a)
+    mark_recently_closed_asset(b)
   end
 
   defp recently_broken?(a, b) when is_binary(a) and is_binary(b) do
@@ -1687,6 +1731,7 @@ defmodule AlpacaTrader.Engine do
     PairPositionStore.find_open_for_pair(a, b) != nil or
       PairPositionStore.find_open_for_asset(long_leg) != nil or
       recently_broken?(a, b) or
+      recently_closed_asset?(long_leg) or
       not pair_cointegration_valid?(a, b)
   end
 

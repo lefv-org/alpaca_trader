@@ -380,14 +380,24 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
         {type, maybe}
 
       _ ->
-        case Application.get_env(:alpaca_trader, :order_type_mode, :market) do
-          :marketable_limit ->
+        # Crypto markets move fast and our limit pricing is often stale by
+        # the time the order reaches Alpaca; IOC limits get cancelled
+        # unfilled, blocking position entry. Force market for crypto
+        # symbols. Equities still use the configured mode.
+        symbol = ctx.symbol
+        is_crypto = is_binary(symbol) and String.contains?(symbol, "/")
+
+        cond do
+          is_crypto ->
+            {"market", %{}}
+
+          Application.get_env(:alpaca_trader, :order_type_mode, :market) == :marketable_limit ->
             case marketable_limit_price(ctx, side) do
               {:ok, price} -> {"limit", %{limit_price: to_string(price)}}
               :error -> {"market", %{}}
             end
 
-          _ ->
+          true ->
             {"market", %{}}
         end
     end

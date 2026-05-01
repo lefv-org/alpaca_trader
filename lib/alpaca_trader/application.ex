@@ -7,6 +7,19 @@ defmodule AlpacaTrader.Application do
 
   @impl true
   def start(_type, _args) do
+    # Create engine cooldown ETS tables here so they survive
+    # transient scheduler processes. Owner = application's supervisor.
+    for {name, opts} <- [
+          {:engine_broken_pairs, [:named_table, :set, :public]},
+          {:engine_recent_close_assets, [:named_table, :set, :public]},
+          {:engine_nil_z_streak, [:named_table, :set, :public]}
+        ] do
+      case :ets.info(name) do
+        :undefined -> :ets.new(name, opts)
+        _ -> :ok
+      end
+    end
+
     children = [
       AlpacaTraderWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:alpaca_trader, :dns_cluster_query) || :ignore},

@@ -826,7 +826,14 @@ defmodule AlpacaTrader.Engine do
   defp stale_position?(pos, market_open?) do
     unrealized = parse_float(pos["unrealized_pl"]) || 0.0
     pct = parse_float(pos["unrealized_plpc"]) || 0.0
-    losing = unrealized < 0 and pct < -0.005
+
+    # Threshold widened: mean-reversion strategies need to ride out small
+    # adverse moves (the spread can dip 1-2% before reverting). Was
+    # -0.5% which closed positions before reversion captured anything.
+    # Now -3% — large enough to absorb noise, small enough to cut real
+    # divergences. Configurable via REAPER_STALE_LOSS_PCT.
+    threshold = Application.get_env(:alpaca_trader, :reaper_stale_loss_pct, -0.03)
+    losing = unrealized < 0 and pct < threshold
 
     closeable_position?(pos, market_open?) and losing
   end
@@ -1652,7 +1659,10 @@ defmodule AlpacaTrader.Engine do
   @broken_pairs_table :engine_broken_pairs
   @recent_close_assets_table :engine_recent_close_assets
   @broken_pair_cooldown_ms 60 * 60 * 1000
-  @recent_close_cooldown_ms 15 * 60 * 1000
+  # Short cooldown — HFT relies on frequent trades. 2 min is enough to
+  # let an exited position's z-score return to entry-worthy territory
+  # without the bot insta-buying back into a still-mid-reverting spread.
+  @recent_close_cooldown_ms 2 * 60 * 1000
 
   # No-op: tables are created/owned by PairPositionStore.init/1. Calling
   # :ets.new from a transient scheduler task would set the task as owner

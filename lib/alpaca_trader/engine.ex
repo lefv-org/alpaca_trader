@@ -1722,10 +1722,14 @@ defmodule AlpacaTrader.Engine do
   @recent_close_assets_table :engine_recent_close_assets
   @recent_loss_assets_table :engine_recent_loss_assets
   @broken_pair_cooldown_ms 60 * 60 * 1000
-  # Short cooldown — HFT relies on frequent trades. 2 min is enough to
-  # let an exited position's z-score return to entry-worthy territory
-  # without the bot insta-buying back into a still-mid-reverting spread.
-  @recent_close_cooldown_ms 2 * 60 * 1000
+  # Cooldown after closing a position. The original 2-min value assumed
+  # genuine HFT cadence; in practice on a $99 paper account the bot
+  # bled spread by round-tripping the same crypto pair every 3-4 min
+  # (closed ETH at \$2305 then re-bought at \$2356 minutes later). 10 min
+  # gives the z-score room to drift fully back without immediate reentry,
+  # while still allowing multiple round-trips per session on real signals.
+  # Override via :recent_close_cooldown_ms application env.
+  @recent_close_cooldown_ms 10 * 60 * 1000
   # Loss-aware cooldown: when the most recent close on an asset realised
   # a loss, extend the no-re-entry window to 30 min. Stops the bot from
   # paying spread to round-trip the same asset multiple times within an
@@ -1762,7 +1766,10 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp recently_closed_asset?(asset) when is_binary(asset) do
-    PairPositionStore.asset_closed_recently?(asset, @recent_close_cooldown_ms) or
+    ttl =
+      Application.get_env(:alpaca_trader, :recent_close_cooldown_ms, @recent_close_cooldown_ms)
+
+    PairPositionStore.asset_closed_recently?(asset, ttl) or
       recently_lost_asset?(asset)
   end
 

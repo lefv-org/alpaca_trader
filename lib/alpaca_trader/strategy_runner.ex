@@ -34,13 +34,38 @@ defmodule AlpacaTrader.StrategyRunner do
 
   @impl true
   def handle_call({:scan, ctx}, _from, %{mod: mod, state: s} = w) do
-    {:ok, sigs, s2} = mod.scan(s, ctx)
-    {:reply, sigs, %{w | state: s2}}
+    safe_invoke(:scan, mod, s, ctx, w)
   end
 
   def handle_call({:exits, ctx}, _from, %{mod: mod, state: s} = w) do
-    {:ok, sigs, s2} = mod.exits(s, ctx)
-    {:reply, sigs, %{w | state: s2}}
+    safe_invoke(:exits, mod, s, ctx, w)
+  end
+
+  # Wrap strategy callbacks so a single buggy module can't take down the
+  # runner, drop the in-flight registry call, and force every subsequent
+  # tick to wait the full 25 s GenServer.call timeout. Crashes are logged
+  # and we reply with [] preserving the previous state.
+  defp safe_invoke(kind, mod, s, ctx, w) do
+    try do
+      {:ok, sigs, s2} = apply(mod, kind, [s, ctx])
+      {:reply, sigs, %{w | state: s2}}
+    rescue
+      e ->
+        require Logger
+        Logger.error(
+          "[StrategyRunner #{inspect(mod)}] #{kind} crashed: #{Exception.message(e)} — preserving state"
+        )
+
+        {:reply, [], w}
+    catch
+      kind_caught, reason ->
+        require Logger
+        Logger.error(
+          "[StrategyRunner #{inspect(mod)}] #{kind} #{kind_caught}: #{inspect(reason)} — preserving state"
+        )
+
+        {:reply, [], w}
+    end
   end
 
   @impl true

@@ -57,20 +57,46 @@ defmodule AlpacaTrader.Universe do
     {"AAVE/USD", "MKR/USD"}
   ]
 
-  @doc "All curated crypto USD pairs across all tiers."
-  def crypto, do: @crypto_tier1 ++ @crypto_tier2 ++ @crypto_tier3
+  @doc """
+  Default symbol set: minimal — BTC/USD + ETH/USD only.
 
-  @doc "Top-tier (deepest book) crypto for high-frequency strategies."
+  This is what every strategy gets when no env override is set. On a
+  small (sub-$25k) paper account, concentrating on the two deepest-book
+  USD pairs is strictly better than spraying signals across 17+
+  symbols: less LLM-gate spend, fewer ghost/orphan edge cases, real
+  execution depth on each instrument. Operators who actually want
+  breadth should set CRYPTO_UNIVERSE explicitly.
+  """
+  def crypto, do: @crypto_tier1
+
+  @doc "Same as crypto/0 — minimal default. Kept for symmetry."
   def crypto_tier1, do: @crypto_tier1
 
-  @doc "Tier 1 + Tier 2 — sweet spot for minute-cadence strategies."
-  def crypto_liquid, do: @crypto_tier1 ++ @crypto_tier2
+  @doc "Same as crypto/0. Operators wanting Tier 2 should opt in via env."
+  def crypto_liquid, do: @crypto_tier1
+
+  @doc "Tier 2 symbols (LTC, BCH, AVAX, LINK, UNI, AAVE) — opt-in."
+  def crypto_tier2, do: @crypto_tier2
+
+  @doc "Tier 3 symbols — opt-in only via CRYPTO_UNIVERSE."
+  def crypto_tier3, do: @crypto_tier3
+
+  @doc "Full curated set across all tiers — opt-in via CRYPTO_UNIVERSE=full."
+  def crypto_full, do: @crypto_tier1 ++ @crypto_tier2 ++ @crypto_tier3
 
   @doc "All sector clusters as {name, symbols} pairs."
   def clusters, do: @clusters
 
-  @doc "Curated pair list for pair-trading strategies (DistancePairs, VBMR)."
-  def crypto_pairs, do: @curated_pairs
+  @doc """
+  Default pair list: minimal — just BTC/USD ↔ ETH/USD.
+
+  See `crypto/0` for rationale. Operators wanting more pairs should
+  override via CRYPTO_PAIRS or per-strategy env (DP_PAIRS, VBMR_PAIRS).
+  """
+  def crypto_pairs, do: [{"BTC/USD", "ETH/USD"}]
+
+  @doc "Full curated pair list — opt-in via CRYPTO_PAIRS=full."
+  def crypto_pairs_full, do: @curated_pairs
 
   @doc """
   Override-aware lookup: respects CRYPTO_UNIVERSE env if set, else
@@ -78,16 +104,13 @@ defmodule AlpacaTrader.Universe do
   """
   def crypto_from_env do
     case System.get_env("CRYPTO_UNIVERSE") do
-      nil ->
-        crypto_liquid()
-
-      "" ->
-        crypto_liquid()
-
-      str ->
-        str
-        |> String.split(",", trim: true)
-        |> Enum.map(&String.trim/1)
+      nil -> crypto()
+      "" -> crypto()
+      "tier1" -> crypto_tier1()
+      "tier2" -> crypto_tier2()
+      "liquid" -> crypto_tier1() ++ crypto_tier2()
+      "full" -> crypto_full()
+      str -> str |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
     end
   end
 
@@ -102,6 +125,9 @@ defmodule AlpacaTrader.Universe do
 
       "" ->
         crypto_pairs()
+
+      "full" ->
+        crypto_pairs_full()
 
       str ->
         str

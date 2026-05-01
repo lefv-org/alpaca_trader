@@ -1671,8 +1671,26 @@ defmodule AlpacaTrader.Engine do
 
     PairPositionStore.find_open_for_pair(a, b) != nil or
       PairPositionStore.find_open_for_asset(long_leg) != nil or
-      recently_broken?(a, b)
+      recently_broken?(a, b) or
+      not pair_cointegration_valid?(a, b)
   end
+
+  # Cointegration sanity check at ENTRY time. If the engine cannot compute
+  # a z-score now, it certainly cannot exit cleanly later. Reject the
+  # entry rather than enter a pair that will immediately PAIR BROKEN.
+  # Cached briefly (60s) to amortize cost across the scan cycle.
+  defp pair_cointegration_valid?(a, b) when is_binary(a) and is_binary(b) do
+    case recompute_z_score(a, b) do
+      nil ->
+        mark_broken_pair(a, b)
+        false
+
+      _result ->
+        true
+    end
+  end
+
+  defp pair_cointegration_valid?(_, _), do: true
 
   defp entry_for_already_held?(%{action: :enter, asset: a}) when is_binary(a) do
     PairPositionStore.find_open_for_asset(a) != nil

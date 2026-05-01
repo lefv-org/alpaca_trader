@@ -1316,6 +1316,11 @@ defmodule AlpacaTrader.Engine do
     price_b = get_live_price(ctx, pos.asset_b)
     pnl = compute_pnl(pos, price_a, price_b)
 
+    if pnl && is_number(pnl.dollar_pnl) and pnl.dollar_pnl < 0 do
+      mark_recently_lost_asset(pos.asset_a)
+      mark_recently_lost_asset(pos.asset_b)
+    end
+
     AlpacaTrader.TradeLog.record(%{
       pair: "#{pos.asset_a}-#{pos.asset_b}",
       tier: pos.tier,
@@ -1715,11 +1720,18 @@ defmodule AlpacaTrader.Engine do
   #   signals after a fresh close.
   @broken_pairs_table :engine_broken_pairs
   @recent_close_assets_table :engine_recent_close_assets
+  @recent_loss_assets_table :engine_recent_loss_assets
   @broken_pair_cooldown_ms 60 * 60 * 1000
   # Short cooldown — HFT relies on frequent trades. 2 min is enough to
   # let an exited position's z-score return to entry-worthy territory
   # without the bot insta-buying back into a still-mid-reverting spread.
   @recent_close_cooldown_ms 2 * 60 * 1000
+  # Loss-aware cooldown: when the most recent close on an asset realised
+  # a loss, extend the no-re-entry window to 30 min. Stops the bot from
+  # paying spread to round-trip the same asset multiple times within an
+  # adverse session — saw 7 ETH/USD round-trips in one hour bleeding
+  # ~25-50 bps each. Override via ENGINE_LOSS_COOLDOWN_MS.
+  @recent_loss_cooldown_ms 30 * 60 * 1000
 
   # No-op: tables are created/owned by PairPositionStore.init/1. Calling
   # :ets.new from a transient scheduler task would set the task as owner
@@ -1750,10 +1762,47 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp recently_closed_asset?(asset) when is_binary(asset) do
-    PairPositionStore.asset_closed_recently?(asset, @recent_close_cooldown_ms)
+    PairPositionStore.asset_closed_recently?(asset, @recent_close_cooldown_ms) or
+      recently_lost_asset?(asset)
   end
 
   defp recently_closed_asset?(_), do: false
+
+  # Loss-aware cooldown: returns true if the asset was last closed at a
+  # loss within @recent_loss_cooldown_ms. Set via mark_recently_lost_asset/1
+  # from log_closed_trade when pnl_dollar < 0.
+  defp recently_lost_asset?(asset) when is_binary(asset) do
+    ttl = Application.get_env(:alpaca_trader, :recent_loss_cooldown_ms, @recent_loss_cooldown_ms)
+
+    case :ets.whereis(@recent_loss_assets_table) do
+      :undefined ->
+        false
+
+      _ ->
+        case :ets.lookup(@recent_loss_assets_table, asset) do
+          [{_, ts}] ->
+            now = System.monotonic_time(:millisecond)
+            now - ts < ttl
+
+          _ ->
+            false
+        end
+    end
+  end
+
+  defp mark_recently_lost_asset(asset) when is_binary(asset) do
+    case :ets.whereis(@recent_loss_assets_table) do
+      :undefined ->
+        :ok
+
+      _ ->
+        :ets.insert(@recent_loss_assets_table, {asset, System.monotonic_time(:millisecond)})
+        Logger.info("[Engine] loss-cooldown: marked #{asset} loss-closed")
+        :ok
+    end
+  end
+
+  defp mark_recently_lost_asset(_), do: :ok
 
   @doc false
   # Public bridge so OrderExecutor can blacklist a pair after a soft sync-close.

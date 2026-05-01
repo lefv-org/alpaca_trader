@@ -44,6 +44,10 @@ defmodule AlpacaTrader.Application do
       Task.start(fn -> AlpacaTrader.Scheduler.Jobs.BarsSyncJob.run() end)
       # Reconcile before jobs run so orphan-blocking is in place from tick 1
       AlpacaTrader.PositionReconciler.reconcile()
+      # Seed loss-cooldown ETS from the persistent TradeLog so a fresh
+      # restart doesn't immediately re-buy assets that closed at a loss
+      # within the cooldown window.
+      AlpacaTrader.Engine.bootstrap_loss_cooldown()
     end
 
     register_jobs()

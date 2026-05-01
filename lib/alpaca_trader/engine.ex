@@ -1804,6 +1804,74 @@ defmodule AlpacaTrader.Engine do
 
   defp mark_recently_lost_asset(_), do: :ok
 
+  @doc """
+  Bootstrap the in-memory loss-cooldown ETS table from the persistent
+  TradeLog on startup. Without this, every bot restart resets the
+  cooldown table — which on a fast-iterating dev loop means the
+  bot's anti-bleed protection only activates if a fresh loss happens
+  *after* the latest restart. Reads the last hour of log entries and
+  marks any asset that closed at a loss within @recent_loss_cooldown_ms.
+
+  Callable from Application.start/2. Errors are swallowed: a missing
+  or malformed log file should not block boot.
+  """
+  def bootstrap_loss_cooldown do
+    :ets.whereis(@recent_loss_assets_table)
+    |> case do
+      :undefined ->
+        :ok
+
+      _ ->
+        try do
+          ttl = Application.get_env(:alpaca_trader, :recent_loss_cooldown_ms, @recent_loss_cooldown_ms)
+          cutoff_iso = DateTime.utc_now() |> DateTime.add(-ttl, :millisecond) |> DateTime.to_iso8601()
+
+          AlpacaTrader.TradeLog.read_all()
+          |> Enum.filter(fn entry ->
+            pnl = entry["pnl_dollar"]
+            exit_t = entry["exit_time"] || entry["logged_at"]
+            is_number(pnl) and pnl < 0 and is_binary(exit_t) and exit_t >= cutoff_iso
+          end)
+          |> Enum.each(fn entry ->
+            case String.split(entry["pair"] || "", "-", parts: 2) do
+              [a, b] ->
+                ts = parse_exit_ts(entry["exit_time"] || entry["logged_at"])
+                if ts do
+                  :ets.insert(@recent_loss_assets_table, {a, ts})
+                  :ets.insert(@recent_loss_assets_table, {b, ts})
+                end
+
+              _ ->
+                :ok
+            end
+          end)
+
+          n = :ets.info(@recent_loss_assets_table, :size)
+          Logger.info("[Engine] loss-cooldown bootstrap: #{n} entries seeded from TradeLog")
+        rescue
+          e ->
+            Logger.warning("[Engine] loss-cooldown bootstrap skipped: #{Exception.message(e)}")
+        end
+
+        :ok
+    end
+  end
+
+  defp parse_exit_ts(nil), do: nil
+
+  defp parse_exit_ts(iso) do
+    case DateTime.from_iso8601(iso) do
+      {:ok, dt, _} ->
+        # Convert wall clock to monotonic-equivalent: now_mono - (now_wall - dt)
+        now_wall = DateTime.utc_now()
+        diff_ms = DateTime.diff(now_wall, dt, :millisecond)
+        System.monotonic_time(:millisecond) - diff_ms
+
+      _ ->
+        nil
+    end
+  end
+
   @doc false
   # Public bridge so OrderExecutor can blacklist a pair after a soft sync-close.
   def mark_broken_pair_external(a, b) when is_binary(a) and is_binary(b) do

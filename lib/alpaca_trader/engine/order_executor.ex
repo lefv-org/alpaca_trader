@@ -65,16 +65,25 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   defp find_held_qty(ctx) do
     target = ctx.symbol || ""
     target_no_slash = String.replace(target, "/", "")
+    positions = ctx.positions || []
 
-    (ctx.positions || [])
-    |> Enum.find(fn p ->
-      sym = p["symbol"]
-      sym == target or sym == target_no_slash
-    end)
-    |> case do
-      %{"qty" => q} -> parse_float(q)
-      _ -> 0.0
-    end
+    found =
+      Enum.find(positions, fn p ->
+        sym = p["symbol"]
+        sym == target or sym == target_no_slash
+      end)
+
+    qty =
+      case found do
+        %{"qty" => q} -> parse_float(q) || 0.0
+        _ -> 0.0
+      end
+
+    Logger.debug(
+      "[OrderExecutor] held_qty(#{target}): n_positions=#{length(positions)} found=#{found != nil} qty=#{qty}"
+    )
+
+    qty
   end
 
   defp marketable_limit_price_pure(side, bid, ask, k) when side in [:buy, "buy"] do

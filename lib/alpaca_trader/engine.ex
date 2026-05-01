@@ -1692,6 +1692,7 @@ defmodule AlpacaTrader.Engine do
       {asset, System.monotonic_time(:millisecond)}
     )
 
+    Logger.info("[Engine] cooldown: marked #{asset} closed")
     :ok
   end
 

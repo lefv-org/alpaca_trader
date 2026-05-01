@@ -997,7 +997,32 @@ defmodule AlpacaTrader.Engine do
   # Cheap, deterministic skip for entries the gates will reject anyway.
   # Used to drop candidates BEFORE the per-scan cap so doomed entries don't
   # crowd out tradeable ones. Mirrors the early branches of `gate_and_enter`.
-  defp cheap_skip_entry?(ctx, arb), do: pdt_blocks_equity?(ctx, arb)
+  defp cheap_skip_entry?(ctx, arb) do
+    pdt_blocks_equity?(ctx, arb) or alpaca_holds_long_leg?(arb)
+  end
+
+  # Block entries whose long leg (the side actually bought in long-only
+  # mode) is already held on Alpaca. This catches the case where the
+  # PairPositionStore has dropped tracking — e.g. after a ghost-close
+  # that wiped the pair record while the underlying broker position
+  # remained — and the bot would otherwise re-buy the same crypto on
+  # every fresh signal. Reads the Reconciler's cached Alpaca-held set
+  # so it does not add an HTTP call to the hot path.
+  defp alpaca_holds_long_leg?(%{action: :enter, asset: a, pair_asset: b, direction: dir}) do
+    long_leg =
+      case dir do
+        :long_a_short_b -> a
+        :long_b_short_a -> b
+        _ -> a
+      end
+
+    is_binary(long_leg) and AlpacaTrader.PositionReconciler.held_on_alpaca?(long_leg)
+  end
+
+  defp alpaca_holds_long_leg?(%{action: :enter, asset: a}) when is_binary(a),
+    do: AlpacaTrader.PositionReconciler.held_on_alpaca?(a)
+
+  defp alpaca_holds_long_leg?(_), do: false
 
   # PDT (Pattern Day Trader) protection: an Alpaca account with equity
   # < $25k that day-trades 4 times in 5 days gets frozen. Bot strategies

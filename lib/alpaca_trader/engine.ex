@@ -666,6 +666,8 @@ defmodule AlpacaTrader.Engine do
     end
   end
 
+  defp cancel_pending_orders(_ctx), do: :ok
+
   defp parse_dt(nil), do: nil
 
   defp parse_dt(s) when is_binary(s) do
@@ -676,8 +678,6 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp parse_dt(_), do: nil
-
-  defp cancel_pending_orders(_ctx), do: :ok
 
   # ── STALE POSITION REAPER + DEADLOCK BREAKER ──────────────────
   # 1. Normal reap: close positions with negative P&L (losers).
@@ -1955,6 +1955,12 @@ defmodule AlpacaTrader.Engine do
       not pair_cointegration_valid?(a, b)
   end
 
+  defp entry_for_already_held?(%{action: :enter, asset: a}) when is_binary(a) do
+    PairPositionStore.find_open_for_asset(a) != nil
+  end
+
+  defp entry_for_already_held?(_), do: false
+
   # Track consecutive nil-z reads per position (in-process ETS).
   # Reset on any successful read; increment on nil.
   @nil_z_table :engine_nil_z_streak
@@ -2003,12 +2009,6 @@ defmodule AlpacaTrader.Engine do
   end
 
   defp pair_cointegration_valid?(_, _), do: true
-
-  defp entry_for_already_held?(%{action: :enter, asset: a}) when is_binary(a) do
-    PairPositionStore.find_open_for_asset(a) != nil
-  end
-
-  defp entry_for_already_held?(_), do: false
 
   # Within-batch long-leg dedup. Keeps the highest-|z|-score entry per
   # long leg + non-:enter actions untouched.

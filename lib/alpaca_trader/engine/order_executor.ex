@@ -60,6 +60,23 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     end
   end
 
+  # Match position by symbol across crypto slash / no-slash forms.
+  # Alpaca crypto positions return "ETHUSD" but the bot tracks "ETH/USD".
+  defp find_held_qty(ctx) do
+    target = ctx.symbol || ""
+    target_no_slash = String.replace(target, "/", "")
+
+    (ctx.positions || [])
+    |> Enum.find(fn p ->
+      sym = p["symbol"]
+      sym == target or sym == target_no_slash
+    end)
+    |> case do
+      %{"qty" => q} -> parse_float(q)
+      _ -> 0.0
+    end
+  end
+
   defp marketable_limit_price_pure(side, bid, ask, k) when side in [:buy, "buy"] do
     raw = ask + k * (ask - bid)
     round_tick(raw, "buy", %{})
@@ -86,13 +103,7 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     daytrade_count = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
     equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
 
-    held_qty =
-      (ctx.positions || [])
-      |> Enum.find(fn p -> p["symbol"] == ctx.symbol end)
-      |> case do
-        %{"qty" => q} -> parse_float(q)
-        _ -> 0.0
-      end
+    held_qty = find_held_qty(ctx)
 
     pdt_at_limit = asset_class != "crypto" and equity < 25_000 and daytrade_count >= 3
     pdt_would_block = pdt_at_limit and side == "sell" and opened_today?(ctx, ctx.symbol)
@@ -312,13 +323,7 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     daytrade_count = parse_float(get_in(ctx.account, ["daytrade_count"])) || 0
     equity = parse_float(get_in(ctx.account, ["equity"])) || 0.0
 
-    held_qty =
-      (ctx.positions || [])
-      |> Enum.find(fn p -> p["symbol"] == ctx.symbol end)
-      |> case do
-        %{"qty" => q} -> parse_float(q)
-        _ -> 0.0
-      end
+    held_qty = find_held_qty(ctx)
 
     pdt_at_limit = asset_class != "crypto" and equity < 25_000 and daytrade_count >= 3
     pdt_would_block = pdt_at_limit and side == "sell" and opened_today?(ctx, ctx.symbol)

@@ -13,10 +13,20 @@ defmodule AlpacaTrader.Brokers.Alpaca do
   def submit_order(%Order{} = order, _opts) do
     body = to_alpaca_body(order)
     case Client.create_order(body) do
-      {:ok, resp} -> {:ok, decode_order(resp, order)}
+      {:ok, resp} ->
+        {:ok, decode_order(resp, order)}
+
       {:error, %{"message" => msg}} ->
+        require Logger
+
+        Logger.warning(
+          "[Broker.Alpaca] order rejected #{order.symbol} #{order.side}: #{msg} body=#{inspect(body)}"
+        )
+
         {:ok, %{order | status: :rejected, reason: msg}}
-      {:error, reason} -> {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -92,7 +102,7 @@ defmodule AlpacaTrader.Brokers.Alpaca do
       "symbol" => Symbol.to_alpaca(o.symbol),
       "side" => Atom.to_string(o.side),
       "type" => Atom.to_string(o.type),
-      "time_in_force" => Atom.to_string(o.tif)
+      "time_in_force" => resolve_tif(o)
     }
     size = case o.size_mode do
       :qty -> %{"qty" => Decimal.to_string(o.size, :normal)}
@@ -100,6 +110,24 @@ defmodule AlpacaTrader.Brokers.Alpaca do
       :pct_equity -> raise "pct_equity size_mode must be resolved by router before submit"
     end
     Map.merge(base, size)
+  end
+
+  # Alpaca rejects "day" time_in_force on crypto symbols (24/7 market —
+  # must be gtc / ioc / fok). The Order struct defaults tif to :day,
+  # correct for equities but wrong for any crypto routed through the
+  # Strategy/OrderRouter path (strategies don't set tif explicitly).
+  # The legacy OrderExecutor.resolve_time_in_force already handled this
+  # for engine-emitted orders; push the same logic down into the broker
+  # so every path that ends here gets a valid value.
+  defp resolve_tif(%Order{tif: tif, symbol: symbol}) do
+    is_crypto = is_binary(symbol) and String.contains?(symbol, "/")
+
+    cond do
+      is_crypto and tif in [nil, :day] -> "gtc"
+      is_crypto -> Atom.to_string(tif)
+      tif in [nil] -> "day"
+      true -> Atom.to_string(tif)
+    end
   end
 
   defp decode_order(resp, %Order{} = original) do

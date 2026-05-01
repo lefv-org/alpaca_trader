@@ -229,6 +229,8 @@ defmodule AlpacaTrader.Engine do
       # exits on the next scan because the new bars haven't arrived yet,
       # creating buy-sell-buy-sell churn that bleeds fees.
       current == nil and pos.bars_held >= 5 ->
+        mark_broken_pair(pos.asset_a, pos.asset_b)
+
         exit_signal(
           asset,
           related,
@@ -1615,6 +1617,44 @@ defmodule AlpacaTrader.Engine do
     {length(results) + length(discovery_hits), deduped_hits}
   end
 
+  # Persistent-ish broken-pair cooldown. ETS table stores `{normalized_key,
+  # marked_at_ms}`. Pairs that exited via PAIR BROKEN within the cooldown
+  # window are skipped at entry.
+  @broken_pairs_table :engine_broken_pairs
+  @broken_pair_cooldown_ms 60 * 60 * 1000
+
+  defp ensure_broken_pair_table do
+    case :ets.info(@broken_pairs_table) do
+      :undefined ->
+        :ets.new(@broken_pairs_table, [:named_table, :set, :public])
+
+      _ ->
+        @broken_pairs_table
+    end
+  end
+
+  defp broken_pair_key(a, b) do
+    [a, b] |> Enum.sort() |> Enum.join("|")
+  end
+
+  defp mark_broken_pair(a, b) when is_binary(a) and is_binary(b) do
+    ensure_broken_pair_table()
+    :ets.insert(@broken_pairs_table, {broken_pair_key(a, b), System.monotonic_time(:millisecond)})
+    :ok
+  end
+
+  defp recently_broken?(a, b) when is_binary(a) and is_binary(b) do
+    ensure_broken_pair_table()
+    now = System.monotonic_time(:millisecond)
+
+    case :ets.lookup(@broken_pairs_table, broken_pair_key(a, b)) do
+      [{_, ts}] -> now - ts < @broken_pair_cooldown_ms
+      _ -> false
+    end
+  end
+
+  defp recently_broken?(_, _), do: false
+
   defp entry_for_already_held?(%{action: :enter, asset: a, pair_asset: b, direction: dir})
        when is_binary(a) and is_binary(b) do
     # Pair already open (order-insensitive) → skip.
@@ -1630,7 +1670,8 @@ defmodule AlpacaTrader.Engine do
       end
 
     PairPositionStore.find_open_for_pair(a, b) != nil or
-      PairPositionStore.find_open_for_asset(long_leg) != nil
+      PairPositionStore.find_open_for_asset(long_leg) != nil or
+      recently_broken?(a, b)
   end
 
   defp entry_for_already_held?(%{action: :enter, asset: a}) when is_binary(a) do

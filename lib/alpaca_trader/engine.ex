@@ -223,8 +223,12 @@ defmodule AlpacaTrader.Engine do
           "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}"
         )
 
-      # 6. COINTEGRATION BROKEN: can't compute z-score anymore
-      current == nil ->
+      # 6. COINTEGRATION BROKEN: can't compute z-score anymore. Only
+      # trigger after the position has accumulated enough bars to fairly
+      # diagnose a broken pair — otherwise a freshly-opened position
+      # exits on the next scan because the new bars haven't arrived yet,
+      # creating buy-sell-buy-sell churn that bleeds fees.
+      current == nil and pos.bars_held >= 5 ->
         exit_signal(
           asset,
           related,

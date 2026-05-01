@@ -40,6 +40,7 @@ defmodule AlpacaTrader.PositionReconciler do
       ghosts = MapSet.difference(tracked_symbols, alpaca_symbols)
 
       :persistent_term.put(@orphans_key, orphans)
+      :persistent_term.put(@alpaca_held_key, alpaca_symbols)
 
       Logger.info(
         "[Reconciler] alpaca=#{MapSet.size(alpaca_symbols)} tracked=#{MapSet.size(tracked_symbols)} " <>
@@ -76,6 +77,19 @@ defmodule AlpacaTrader.PositionReconciler do
   @doc "True if this symbol is held on Alpaca but not tracked locally."
   def orphan?(symbol) when is_binary(symbol) do
     case :persistent_term.get(@orphans_key, nil) do
+      nil -> false
+      set -> MapSet.member?(set, normalize_symbol(symbol))
+    end
+  end
+
+  @doc """
+  True if Alpaca currently holds a position in this symbol. Reads from
+  the cached Alpaca-side set written by reconcile/0, so it does not
+  trigger a fresh API call. Stale up to one reconciler tick (1 min).
+  """
+  @alpaca_held_key {__MODULE__, :alpaca_held}
+  def held_on_alpaca?(symbol) when is_binary(symbol) do
+    case :persistent_term.get(@alpaca_held_key, nil) do
       nil -> false
       set -> MapSet.member?(set, normalize_symbol(symbol))
     end

@@ -17,6 +17,7 @@ defmodule AlpacaTrader.Application do
       AlpacaTrader.GainAccumulatorStore,
       AlpacaTrader.TradeLog,
       AlpacaTrader.ShadowLogger,
+      AlpacaTrader.Analytics.PerformanceTracker,
       AlpacaTrader.LLM.OpinionGate,
       AlpacaTrader.MinuteBarCache,
       AlpacaTrader.Arbitrage.PairWhitelist,

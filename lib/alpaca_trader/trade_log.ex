@@ -119,7 +119,28 @@ defmodule AlpacaTrader.TradeLog do
     # Append-only with a newline. File.write with [:append] is atomic for
     # small writes on POSIX; for trade events this is fine.
     File.write(state.path, payload <> "\n", [:append])
+
+    forward_to_performance_tracker(trade)
     {:noreply, state}
+  end
+
+  # Forward closed-trade P&L to the PerformanceTracker for live Sharpe /
+  # persistence metrics (Baron-Brogaard-Kirilenko 2012 style). Strategy
+  # defaults to :pair_cointegration for legacy engine paths that pre-date
+  # the strategy_id field.
+  defp forward_to_performance_tracker(%{} = trade) do
+    if Code.ensure_loaded?(AlpacaTrader.Analytics.PerformanceTracker) and
+         Process.whereis(AlpacaTrader.Analytics.PerformanceTracker) != nil do
+      strategy = trade[:strategy] || trade["strategy"] || :pair_cointegration
+      strategy = if is_binary(strategy), do: String.to_atom(strategy), else: strategy
+      pnl = trade[:pnl_dollar] || trade["pnl_dollar"]
+
+      if is_number(pnl) do
+        AlpacaTrader.Analytics.PerformanceTracker.record_pnl(strategy, pnl * 1.0)
+      end
+    end
+  rescue
+    _ -> :ok
   end
 
   @impl true

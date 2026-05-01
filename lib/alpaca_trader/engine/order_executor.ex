@@ -67,30 +67,38 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
     target_no_slash = String.replace(target, "/", "")
     positions = ctx.positions || []
 
+    # First: scan ctx-cached positions (cheap, batch-loaded).
     found =
       Enum.find(positions, fn p ->
         sym = p["symbol"]
         sym == target or sym == target_no_slash
       end)
 
-    qty =
-      case found do
-        %{"qty" => q} -> parse_float(q) || 0.0
-        _ -> 0.0
-      end
+    case found do
+      %{"qty" => q} ->
+        parse_float(q) || 0.0
 
-    if found == nil do
-      symbols = positions |> Enum.map(& &1["symbol"]) |> Enum.sort() |> Enum.join(",")
-
-      Logger.info(
-        "[OrderExecutor] held_qty MISS #{target}: n=#{length(positions)} symbols=#{symbols}"
-      )
-    else
-      Logger.debug("[OrderExecutor] held_qty(#{target})=#{qty}")
+      _ ->
+        # Cached miss. For crypto, fall back to a direct per-symbol query
+        # — Alpaca's /v2/positions sometimes excludes crypto from the bulk
+        # list while /v2/positions/<symbol> still returns the live qty.
+        # For equities the cached list is authoritative.
+        if String.contains?(target, "/") do
+          fetch_position_qty(target_no_slash) || fetch_position_qty(target) || 0.0
+        else
+          0.0
+        end
     end
-
-    qty
   end
+
+  defp fetch_position_qty(symbol) when is_binary(symbol) and symbol != "" do
+    case AlpacaTrader.Alpaca.Client.get_position(URI.encode(symbol)) do
+      {:ok, %{"qty" => q}} -> parse_float(q)
+      _ -> nil
+    end
+  end
+
+  defp fetch_position_qty(_), do: nil
 
   defp marketable_limit_price_pure(side, bid, ask, k) when side in [:buy, "buy"] do
     raw = ask + k * (ask - bid)

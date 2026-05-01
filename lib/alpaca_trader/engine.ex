@@ -899,12 +899,22 @@ defmodule AlpacaTrader.Engine do
     # Re-check the entry filter immediately before execution. Exits earlier
     # in the same scan may have set per-asset/pair cooldowns that the
     # scan-time filter couldn't see.
-    if entry_for_already_held?(arb) do
-      Logger.info("[Engine] cooldown blocked entry on #{describe_arb(arb)}")
-      shadow_record_blocked(arb, [:cooldown])
-      []
-    else
-      do_gate_and_enter(ctx, arb)
+    cond do
+      entry_for_already_held?(arb) ->
+        Logger.info("[Engine] cooldown blocked entry on #{describe_arb(arb)}")
+        shadow_record_blocked(arb, [:cooldown])
+        []
+
+      alpaca_holds_long_leg?(arb) ->
+        Logger.info(
+          "[Engine] alpaca-holds blocked entry on #{describe_arb(arb)} (long leg already on broker)"
+        )
+
+        shadow_record_blocked(arb, [:alpaca_holds])
+        []
+
+      true ->
+        do_gate_and_enter(ctx, arb)
     end
   end
 

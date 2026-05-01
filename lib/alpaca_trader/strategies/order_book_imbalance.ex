@@ -119,12 +119,47 @@ defmodule AlpacaTrader.Strategies.OrderBookImbalance do
 
   defp process_quote(symbol, quote, prev, _already_traded, state, long_only)
        when is_map(prev) do
-    bid = quote.bid
-    ask = quote.ask
-    bid_size = max(quote.bid_size, 1)
-    ask_size = max(quote.ask_size, 1)
-    prev_bid = prev.bid
-    prev_ask = prev.ask
+    # Alpaca's /v2/stocks/quotes/latest returns string-keyed maps
+    # (%{"bp" => bid, "ap" => ask, "bs" => bid_size, "as" => ask_size}).
+    # Earlier code accessed atom keys (quote.bid) which raised KeyError
+    # on every scan, crashing the runner; the supervisor respawned it
+    # but each in-flight registry call hit :noproc and waited the full
+    # 25 s timeout. Extracting both shapes here makes the strategy
+    # tolerant of either source.
+    case {extract_quote(quote), extract_quote(prev)} do
+      {{:ok, bid, ask, bid_size, ask_size}, {:ok, prev_bid, prev_ask, _, _}} ->
+        process_quote_with_values(
+          symbol,
+          quote,
+          state,
+          long_only,
+          bid,
+          ask,
+          bid_size,
+          ask_size,
+          prev_bid,
+          prev_ask
+        )
+
+      _ ->
+        {[], state}
+    end
+  end
+
+  defp process_quote_with_values(
+         symbol,
+         quote,
+         state,
+         long_only,
+         bid,
+         ask,
+         bid_size,
+         ask_size,
+         prev_bid,
+         prev_ask
+       ) do
+    bid_size = max(bid_size, 1)
+    ask_size = max(ask_size, 1)
 
     # Detect a clean 1-penny level change on BOTH sides simultaneously.
     spread = Float.round(ask - bid, 4)
@@ -169,6 +204,23 @@ defmodule AlpacaTrader.Strategies.OrderBookImbalance do
     new_state = %{state | prev_quotes: Map.put(state.prev_quotes, symbol, quote)}
     {[], new_state}
   end
+
+  # Tolerant quote extractor: accepts Alpaca's string-keyed shape
+  # (%{"bp" => bid, "ap" => ask, "bs" => bid_size, "as" => ask_size}) AND
+  # any older atom-keyed shape we may have stored in prev_quotes from a
+  # previous boot. Returns {:ok, bid, ask, bid_size, ask_size} or :error.
+  defp extract_quote(%{"bp" => bp, "ap" => ap, "bs" => bs, "as" => as})
+       when is_number(bp) and is_number(ap),
+       do: {:ok, bp * 1.0, ap * 1.0, num(bs), num(as)}
+
+  defp extract_quote(%{bid: bid, ask: ask, bid_size: bs, ask_size: as})
+       when is_number(bid) and is_number(ask),
+       do: {:ok, bid * 1.0, ask * 1.0, num(bs), num(as)}
+
+  defp extract_quote(_), do: :error
+
+  defp num(n) when is_number(n), do: n
+  defp num(_), do: 1
 
   defp check_imbalance(symbol, bid, ask, bid_size, ask_size, state, long_only) do
     ratio = state.imbalance_ratio

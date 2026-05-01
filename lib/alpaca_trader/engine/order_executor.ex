@@ -94,10 +94,19 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
   end
 
   defp fetch_position_qty(symbol) when is_binary(symbol) and symbol != "" do
-    case AlpacaTrader.Alpaca.Client.get_position(URI.encode(symbol)) do
-      {:ok, %{"qty" => q}} -> parse_float(q)
-      _ -> nil
-    end
+    result = AlpacaTrader.Alpaca.Client.get_position(URI.encode(symbol))
+
+    qty =
+      case result do
+        {:ok, %{"qty" => q}} -> parse_float(q)
+        _ -> nil
+      end
+
+    Logger.info(
+      "[OrderExecutor] fetch_position_qty(#{symbol}) result=#{inspect(result, limit: 3)} qty=#{qty}"
+    )
+
+    qty
   end
 
   defp fetch_position_qty(_), do: nil

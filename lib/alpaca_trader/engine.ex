@@ -854,6 +854,7 @@ defmodule AlpacaTrader.Engine do
     # in the same scan may have set per-asset/pair cooldowns that the
     # scan-time filter couldn't see.
     if entry_for_already_held?(arb) do
+      Logger.info("[Engine] cooldown blocked entry on #{describe_arb(arb)}")
       shadow_record_blocked(arb, [:cooldown])
       []
     else

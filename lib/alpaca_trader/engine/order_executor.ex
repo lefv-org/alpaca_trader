@@ -155,6 +155,40 @@ defmodule AlpacaTrader.Engine.OrderExecutor do
           "PDT limit (#{trunc(daytrade_count)}/3 day trades, equity < $25k, same-day position)"
         )
 
+      # Crypto sells: bypass notional/qty params entirely and use Alpaca's
+      # close_position endpoint, which sells the EXACT held qty. Avoids
+      # "insufficient balance for ETH (requested: 0.00131228, available:
+      # 0.001263226)" rejections caused by stale price snapshots
+      # producing a notional → qty conversion that's slightly larger
+      # than the real position.
+      side == "sell" and held_qty > 0 and asset_class == "crypto" ->
+        no_slash = String.replace(ctx.symbol || "", "/", "")
+
+        case AlpacaTrader.Alpaca.Client.close_position(URI.encode(no_slash)) do
+          {:ok, order} ->
+            Logger.info(
+              "[Trade] 🔴 CLOSE #{ctx.symbol} qty=#{held_qty} status=#{order["status"]}"
+            )
+
+            {:ok,
+             %PurchaseContext{
+               action: :sold,
+               symbol: ctx.symbol,
+               reason: "close_position",
+               qty: order["qty"] || to_string(held_qty),
+               side: "sell",
+               order: order,
+               timestamp: DateTime.utc_now()
+             }}
+
+          {:error, err} ->
+            Logger.warning(
+              "[Trade] ⚠️  CLOSE FAIL #{ctx.symbol}: #{inspect(err) |> String.slice(0..120)}"
+            )
+
+            hold(ctx.symbol, "close_position failed: #{inspect(err)}")
+        end
+
       side == "sell" and held_qty <= 0 and not shorting_enabled? ->
         # Long-only pair exit with nothing held: real broker exposure is 0.
         # PairPositionStore may still track "open" but only sync-close it

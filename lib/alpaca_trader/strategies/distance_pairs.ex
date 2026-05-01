@@ -39,7 +39,10 @@ defmodule AlpacaTrader.Strategies.DistancePairs do
   alias AlpacaTrader.BarsStore
 
   @conviction 0.65
-  @default_pairs [{"AAPL", "MSFT"}, {"SPY", "QQQ"}, {"GLD", "TLT"}]
+  # Equity defaults get PDT-blocked on small accounts. Default to the
+  # curated crypto pair set for actually-tradeable signals; override
+  # with DP_PAIRS env.
+  defp default_pairs, do: AlpacaTrader.Universe.crypto_pairs()
 
   @impl true
   def id, do: :distance_pairs
@@ -200,8 +203,8 @@ defmodule AlpacaTrader.Strategies.DistancePairs do
 
       _ ->
         case System.get_env("DP_PAIRS") do
-          nil -> @default_pairs
-          "" -> @default_pairs
+          nil -> default_pairs()
+          "" -> default_pairs()
           str -> parse_pairs(str)
         end
     end

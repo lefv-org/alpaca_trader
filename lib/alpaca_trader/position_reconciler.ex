@@ -109,12 +109,19 @@ defmodule AlpacaTrader.PositionReconciler do
 
   defp close_ghost_entries(ghost_symbols) do
     # Ghost set holds the no-slash canonical form (see normalize_symbol/1).
-    # Match positions by normalised asset symbol so SOL/USD in the store
-    # correctly matches SOLUSD in the ghost set.
+    # Only close pair-store entries where BOTH legs are ghost. Closing a
+    # pair where one leg is still held on Alpaca leaves that real
+    # holding untracked — and the engine's `find_open_for_asset/1`
+    # check then returns nil, re-allowing entries on the asset we still
+    # hold. That re-entry loop is the failure mode we hit on
+    # SOL/USD↔ETH/USD where SOL/USD was never on Alpaca but ETH/USD
+    # actually executed: closing the pair untracked the live ETH/USD
+    # position and the bot kept buying it on every fresh signal.
     PairPositionStore.open_positions()
     |> Enum.filter(fn pos ->
-      MapSet.member?(ghost_symbols, normalize_symbol(pos.asset_a)) or
-        MapSet.member?(ghost_symbols, normalize_symbol(pos.asset_b))
+      a_ghost = MapSet.member?(ghost_symbols, normalize_symbol(pos.asset_a))
+      b_ghost = MapSet.member?(ghost_symbols, normalize_symbol(pos.asset_b))
+      a_ghost and b_ghost
     end)
     |> Enum.each(fn pos -> PairPositionStore.close_position(pos.id) end)
   end

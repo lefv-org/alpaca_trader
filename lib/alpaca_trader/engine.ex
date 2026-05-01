@@ -145,6 +145,7 @@ defmodule AlpacaTrader.Engine do
 
   defp check_exit_conditions(ctx, pos, asset, related) do
     current = recompute_z_score(pos.asset_a, pos.asset_b)
+    record_z_observation(pos, current)
 
     # Get current prices for P&L — live quotes first, then bars fallback
     price_a = get_live_price(ctx, pos.asset_a)
@@ -223,19 +224,19 @@ defmodule AlpacaTrader.Engine do
           "TIME EXIT: held #{pos.bars_held} bars, P&L=#{format_pnl(pnl)}"
         )
 
-      # 6. COINTEGRATION BROKEN: can't compute z-score anymore. Only
-      # trigger after the position has accumulated enough bars to fairly
-      # diagnose a broken pair — otherwise a freshly-opened position
-      # exits on the next scan because the new bars haven't arrived yet,
-      # creating buy-sell-buy-sell churn that bleeds fees.
-      current == nil and pos.bars_held >= 5 ->
+      # 6. COINTEGRATION BROKEN: only after BOTH bars_held >= 5 AND we've
+      # seen N consecutive nil z-score readings. Single-scan nils are
+      # often transient (bar cache mid-refresh, brief data gap) — exiting
+      # on first nil causes buy/sell churn even when the underlying pair
+      # is fine.
+      current == nil and pos.bars_held >= 5 and consecutive_nil_z(pos) >= 3 ->
         mark_broken_pair(pos.asset_a, pos.asset_b)
 
         exit_signal(
           asset,
           related,
           pos,
-          "PAIR BROKEN: cannot compute spread, P&L=#{format_pnl(pnl)}"
+          "PAIR BROKEN: cannot compute spread (3+ scans), P&L=#{format_pnl(pnl)}"
         )
 
       # 7. Z-SCORE REVERSION: spread reverted to mean
@@ -1673,6 +1674,38 @@ defmodule AlpacaTrader.Engine do
       PairPositionStore.find_open_for_asset(long_leg) != nil or
       recently_broken?(a, b) or
       not pair_cointegration_valid?(a, b)
+  end
+
+  # Track consecutive nil-z reads per position (in-process ETS).
+  # Reset on any successful read; increment on nil.
+  @nil_z_table :engine_nil_z_streak
+
+  defp ensure_nil_z_table do
+    case :ets.info(@nil_z_table) do
+      :undefined -> :ets.new(@nil_z_table, [:named_table, :set, :public])
+      _ -> @nil_z_table
+    end
+  end
+
+  defp consecutive_nil_z(pos) do
+    ensure_nil_z_table()
+
+    case :ets.lookup(@nil_z_table, pos.id) do
+      [{_, n}] -> n
+      _ -> 0
+    end
+  end
+
+  defp record_z_observation(pos, nil) do
+    ensure_nil_z_table()
+
+    :ets.update_counter(@nil_z_table, pos.id, {2, 1}, {pos.id, 0})
+  end
+
+  defp record_z_observation(pos, _result) do
+    ensure_nil_z_table()
+    :ets.delete(@nil_z_table, pos.id)
+    :ok
   end
 
   # Cointegration sanity check at ENTRY time. Two checks:

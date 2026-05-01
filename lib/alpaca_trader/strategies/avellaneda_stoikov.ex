@@ -382,7 +382,7 @@ defmodule AlpacaTrader.Strategies.AvellanedaStoikov do
   # The exponential ensures size stays positive and decays smoothly. Floor
   # at 10% of notional so we never round to zero on tiny moves; cap at 2x
   # so size doesn't run away.
-  defp skewed_size(side, q, %{notional_per_leg: base, size_eta: 0.0}), do: base * 1.0
+  defp skewed_size(_side, _q, %{notional_per_leg: base, size_eta: +0.0}), do: base * 1.0
 
   defp skewed_size(side, q, %{notional_per_leg: base, size_eta: eta}) do
     factor =

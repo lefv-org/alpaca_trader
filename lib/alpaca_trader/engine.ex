@@ -730,7 +730,7 @@ defmodule AlpacaTrader.Engine do
           # so try both forms before giving up.
           case PairPositionStore.find_open_for_asset(symbol) ||
                  PairPositionStore.find_open_for_asset(restore_crypto_slash(symbol)) do
-            %PairPositionStore.PairPosition{id: id, asset_a: a, asset_b: b} ->
+            %PairPositionStore.PairPosition{id: id, asset_a: a, asset_b: b} = pos ->
               PairPositionStore.close_position(id)
               # Also blacklist the pair AND both legs so we don't re-enter
               # the same configuration (or any pair targeting these legs)
@@ -740,6 +740,10 @@ defmodule AlpacaTrader.Engine do
               mark_broken_pair(a, b)
               mark_recently_closed_asset(a)
               mark_recently_closed_asset(b)
+
+              # Log Reaper close to TradeLog so geometric P&L proofs see
+              # every realized trade, not just engine-driven exits.
+              log_reaper_close(pos, unrealized, pct, reason_prefix)
 
             _ ->
               :ok
@@ -1250,6 +1254,24 @@ defmodule AlpacaTrader.Engine do
     end
 
     trades
+  end
+
+  defp log_reaper_close(pos, unrealized, pct, reason_prefix) do
+    AlpacaTrader.TradeLog.record(%{
+      pair: "#{pos.asset_a}-#{pos.asset_b}",
+      tier: pos.tier,
+      direction: "#{pos.direction}",
+      entry_z: pos.entry_z_score,
+      exit_z: pos.current_z_score,
+      entry_price_a: pos.entry_price_a,
+      entry_price_b: pos.entry_price_b,
+      bars_held: pos.bars_held,
+      pnl_dollar: unrealized,
+      pnl_pct: pct * 100,
+      reason: "reaper_#{reason_prefix}",
+      entry_time: pos.entry_time && DateTime.to_iso8601(pos.entry_time),
+      exit_time: DateTime.utc_now() |> DateTime.to_iso8601()
+    })
   end
 
   # Record a closed trade to the append-only TradeLog for post-hoc analysis.

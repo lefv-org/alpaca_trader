@@ -17,7 +17,7 @@ defmodule AlpacaTrader.Arbitrage.DiscoveryScanner do
   require Logger
 
   @batch_size 10
-  @z_threshold 2.0
+  @z_threshold 1.5
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)

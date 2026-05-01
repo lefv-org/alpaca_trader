@@ -108,10 +108,13 @@ defmodule AlpacaTrader.PositionReconciler do
   end
 
   defp close_ghost_entries(ghost_symbols) do
+    # Ghost set holds the no-slash canonical form (see normalize_symbol/1).
+    # Match positions by normalised asset symbol so SOL/USD in the store
+    # correctly matches SOLUSD in the ghost set.
     PairPositionStore.open_positions()
     |> Enum.filter(fn pos ->
-      MapSet.member?(ghost_symbols, pos.asset_a) or
-        MapSet.member?(ghost_symbols, pos.asset_b)
+      MapSet.member?(ghost_symbols, normalize_symbol(pos.asset_a)) or
+        MapSet.member?(ghost_symbols, normalize_symbol(pos.asset_b))
     end)
     |> Enum.each(fn pos -> PairPositionStore.close_position(pos.id) end)
   end

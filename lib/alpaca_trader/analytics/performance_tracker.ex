@@ -200,7 +200,7 @@ defmodule AlpacaTrader.Analytics.PerformanceTracker do
     Enum.count(fills, fn {_ts, _side, t} -> t == :market end) / length(fills)
   end
 
-  defp compute_sharpe(returns, periods_per_year) when length(returns) < 2, do: nil
+  defp compute_sharpe(returns, _periods_per_year) when length(returns) < 2, do: nil
 
   defp compute_sharpe(returns, periods_per_year) do
     n = length(returns)

@@ -224,13 +224,18 @@ defmodule AlpacaTrader.Engine do
           )
         end
 
-      # 5. TIME EXIT: half-life-aware time-stop (falls back to max_hold_bars when
-      # half-life is unavailable). Keeps dead-money trades from decaying further.
+      # 5. TIME EXIT: half-life-aware time-stop (falls back to max_hold_bars
+      # when half-life is unavailable). Keeps dead-money trades from
+      # decaying further — but ONLY when the trade isn't already winning.
+      # Without the profit guard, the time-stop closed BTC/USD-LTC/USD at
+      # break-even after BTC had quietly gained \$0.03 in the held period
+      # (BTC went +0.07% unrealized, time-exit fired, realized -\$0.14
+      # after spread), throwing away a winner for being patient.
       HalfLifeManager.should_time_stop?(pos.bars_held,
         half_life: pos.half_life,
         multiplier: Application.get_env(:alpaca_trader, :half_life_time_stop_mult, 2.0),
         fallback_bars: pos.max_hold_bars
-      ) ->
+      ) and (pnl == nil or pnl.profit_pct <= 0.0) ->
         exit_signal(
           asset,
           related,

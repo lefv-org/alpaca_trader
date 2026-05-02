@@ -176,7 +176,16 @@ defmodule AlpacaTrader.Engine do
         ((pos.entry_z_score > 0 and current.z_score < -1.5) or
            (pos.entry_z_score < 0 and current.z_score > 1.5))
 
-    can_flip = z_crossed and trend > 25 and PairPositionStore.can_flip?(pos.id)
+    # Flips do close + reverse-buy in the same scan, bypassing the
+    # alpaca_holds_long_leg gate (which only runs on the :enter path).
+    # On a small account each flip eats 2x spread (close + open) before
+    # the new direction has any chance to be right. Default off; set
+    # ENABLE_FLIPS=true to re-enable for accounts with real edge.
+    flips_enabled =
+      Application.get_env(:alpaca_trader, :enable_flips, false)
+
+    can_flip =
+      flips_enabled and z_crossed and trend > 25 and PairPositionStore.can_flip?(pos.id)
 
     cond do
       # 1. PROFIT TARGET: spread moved in our favor → SELL
@@ -204,7 +213,7 @@ defmodule AlpacaTrader.Engine do
       # 4. CUT LOSS: P&L below tier-specific threshold
       pnl != nil and pnl.profit_pct <= cut_loss ->
         # If trending, flip instead of just cutting
-        if trend > 25 and PairPositionStore.can_flip?(pos.id) do
+        if flips_enabled and trend > 25 and PairPositionStore.can_flip?(pos.id) do
           flip_signal(asset, related, pos, z, trend, pnl)
         else
           exit_signal(
@@ -1023,7 +1032,7 @@ defmodule AlpacaTrader.Engine do
   # remained — and the bot would otherwise re-buy the same crypto on
   # every fresh signal. Reads the Reconciler's cached Alpaca-held set
   # so it does not add an HTTP call to the hot path.
-  defp alpaca_holds_long_leg?(%{action: :enter, asset: a, pair_asset: b, direction: dir} = arb) do
+  defp alpaca_holds_long_leg?(%{action: :enter, asset: a, pair_asset: b, direction: dir}) do
     long_leg =
       case dir do
         :long_a_short_b -> a

@@ -249,6 +249,7 @@ if config_env() != :test do
     # is unchanged. Intended for accounts that cannot short (e.g. Alpaca
     # crypto, small equity accounts). Default false for backward compat.
     long_only_mode: System.get_env("LONG_ONLY_MODE", "false") == "true",
+    enable_flips: System.get_env("ENABLE_FLIPS", "false") == "true",
     # QuiverQuant alt-data feeds
     quiverquant_api_key: System.get_env("QUIVERQUANT_API_KEY"),
     quiver_base_url: System.get_env("QUIVER_BASE_URL", "https://api.quiverquant.com/beta"),

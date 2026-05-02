@@ -1023,7 +1023,7 @@ defmodule AlpacaTrader.Engine do
   # remained — and the bot would otherwise re-buy the same crypto on
   # every fresh signal. Reads the Reconciler's cached Alpaca-held set
   # so it does not add an HTTP call to the hot path.
-  defp alpaca_holds_long_leg?(%{action: :enter, asset: a, pair_asset: b, direction: dir}) do
+  defp alpaca_holds_long_leg?(%{action: :enter, asset: a, pair_asset: b, direction: dir} = arb) do
     long_leg =
       case dir do
         :long_a_short_b -> a
@@ -1031,11 +1031,21 @@ defmodule AlpacaTrader.Engine do
         _ -> a
       end
 
-    is_binary(long_leg) and AlpacaTrader.PositionReconciler.held_on_alpaca?(long_leg)
+    held =
+      is_binary(long_leg) and AlpacaTrader.PositionReconciler.held_on_alpaca?(long_leg)
+
+    Logger.debug(
+      "[alpaca_holds] arb a=#{inspect(a)} b=#{inspect(b)} dir=#{inspect(dir)} long_leg=#{inspect(long_leg)} held=#{held}"
+    )
+
+    held
   end
 
-  defp alpaca_holds_long_leg?(%{action: :enter, asset: a}) when is_binary(a),
-    do: AlpacaTrader.PositionReconciler.held_on_alpaca?(a)
+  defp alpaca_holds_long_leg?(%{action: :enter, asset: a}) when is_binary(a) do
+    held = AlpacaTrader.PositionReconciler.held_on_alpaca?(a)
+    Logger.debug("[alpaca_holds] solo a=#{inspect(a)} held=#{held}")
+    held
+  end
 
   defp alpaca_holds_long_leg?(_), do: false
 

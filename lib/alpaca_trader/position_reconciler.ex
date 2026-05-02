@@ -20,6 +20,12 @@ defmodule AlpacaTrader.PositionReconciler do
 
   @orphans_key {__MODULE__, :orphan_symbols}
   @alpaca_held_key {__MODULE__, :alpaca_held}
+  # Separate "in-flight" set that doesn't get overwritten by the
+  # reconciler's full snapshot. Inline marks (after we just submitted
+  # an entry) live here with a TTL of @inflight_ttl_ms so they survive
+  # the next reconcile while the order is still settling at Alpaca.
+  @inflight_held_key {__MODULE__, :inflight_held}
+  @inflight_ttl_ms 5 * 60 * 1000
 
   @doc """
   Reconcile Alpaca's open positions against PairPositionStore.
@@ -89,9 +95,24 @@ defmodule AlpacaTrader.PositionReconciler do
   trigger a fresh API call. Stale up to one reconciler tick (1 min).
   """
   def held_on_alpaca?(symbol) when is_binary(symbol) do
+    norm = normalize_symbol(symbol)
+    held_in_alpaca_set?(norm) or held_in_inflight_set?(norm)
+  end
+
+  defp held_in_alpaca_set?(norm) do
     case :persistent_term.get(@alpaca_held_key, nil) do
       nil -> false
-      set -> MapSet.member?(set, normalize_symbol(symbol))
+      set -> MapSet.member?(set, norm)
+    end
+  end
+
+  defp held_in_inflight_set?(norm) do
+    cur = :persistent_term.get(@inflight_held_key, %{})
+    now = System.monotonic_time(:millisecond)
+
+    case Map.get(cur, norm) do
+      ts when is_integer(ts) and now - ts < @inflight_ttl_ms -> true
+      _ -> false
     end
   end
 
@@ -106,8 +127,21 @@ defmodule AlpacaTrader.PositionReconciler do
   uses, so the next normal reconcile reconciles cleanly.
   """
   def mark_held_on_alpaca(symbol) when is_binary(symbol) do
-    cur = :persistent_term.get(@alpaca_held_key, MapSet.new())
-    :persistent_term.put(@alpaca_held_key, MapSet.put(cur, normalize_symbol(symbol)))
+    norm = normalize_symbol(symbol)
+    now = System.monotonic_time(:millisecond)
+
+    # Write into BOTH the alpaca_held set (so existing readers benefit
+    # immediately) AND the in-flight TTL map (so the next reconciler
+    # snapshot can't wipe it before Alpaca's /v2/positions reflects
+    # the just-submitted order). Without the in-flight set the inline
+    # mark survives only until the next reconcile/0 — which on a fast
+    # tick is <60s, often less than fill latency on a flaky paper feed.
+    cur_set = :persistent_term.get(@alpaca_held_key, MapSet.new())
+    :persistent_term.put(@alpaca_held_key, MapSet.put(cur_set, norm))
+
+    cur_inflight = :persistent_term.get(@inflight_held_key, %{})
+    :persistent_term.put(@inflight_held_key, Map.put(cur_inflight, norm, now))
+
     :ok
   end
 

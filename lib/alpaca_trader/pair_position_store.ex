@@ -102,6 +102,17 @@ defmodule AlpacaTrader.PairPositionStore do
 
     :ets.insert(@table, {id, pos})
     persist_async()
+
+    # Inline-mark both legs as Alpaca-held so a follow-up scan within
+    # the same reconciler minute can't fire a duplicate entry on the
+    # same symbol via a different pair signal. The next reconcile/0
+    # tick will overwrite this with the real broker state, but until
+    # then the engine's held_on_alpaca? gate sees the just-opened
+    # symbol immediately. Without this we observed 4 duplicate ETH/BTC
+    # buys in 90 seconds during heavy discovery activity.
+    AlpacaTrader.PositionReconciler.mark_held_on_alpaca(pos.asset_a)
+    AlpacaTrader.PositionReconciler.mark_held_on_alpaca(pos.asset_b)
+
     {:ok, pos}
   end
 

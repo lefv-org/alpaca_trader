@@ -95,6 +95,24 @@ defmodule AlpacaTrader.PositionReconciler do
     end
   end
 
+  @doc """
+  Inline-mark a symbol as Alpaca-held without waiting for the next
+  reconciler tick. Use when the engine has just submitted a buy and
+  another scan in the same minute would otherwise see a stale
+  not-held cache and fire a duplicate entry.
+
+  Idempotent — adding an already-present symbol is a no-op. Reads
+  + writes the persistent_term set under the same key reconcile/0
+  uses, so the next normal reconcile reconciles cleanly.
+  """
+  def mark_held_on_alpaca(symbol) when is_binary(symbol) do
+    cur = :persistent_term.get(@alpaca_held_key, MapSet.new())
+    :persistent_term.put(@alpaca_held_key, MapSet.put(cur, normalize_symbol(symbol)))
+    :ok
+  end
+
+  def mark_held_on_alpaca(_), do: :ok
+
   # Canonical no-slash form. ETH/USD → ETHUSD, AAPL → AAPL.
   # Used at the orphan-set boundary so crypto symbols compare consistently
   # regardless of whether they came from Alpaca's positions endpoint

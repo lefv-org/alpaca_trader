@@ -67,6 +67,7 @@ defmodule AlpacaTrader.Application do
     Api.register_job(AlpacaTrader.Scheduler.Jobs.PairBuildJob)
     Api.register_job(AlpacaTrader.Scheduler.Jobs.PairRecointegrationJob)
     Api.register_job(AlpacaTrader.Scheduler.Jobs.ReconcileJob)
+    Api.register_job(AlpacaTrader.Scheduler.Jobs.OrphanReaperJob)
 
     # New Strategy-based scan. Off by default until STRATEGY_SCAN_ENABLED=true
     # so existing deployments keep current behaviour unchanged.

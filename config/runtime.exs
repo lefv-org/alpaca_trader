@@ -254,6 +254,8 @@ if config_env() != :test do
       String.to_float(System.get_env("GAIN_ACCUMULATOR_FLOOR_PCT", "0.20")),
     orphan_reaper_loss_pct:
       String.to_float(System.get_env("ORPHAN_REAPER_LOSS_PCT", "-0.01")),
+    min_cash_reserve:
+      String.to_float(System.get_env("MIN_CASH_RESERVE", "10.0")),
     # QuiverQuant alt-data feeds
     quiverquant_api_key: System.get_env("QUIVERQUANT_API_KEY"),
     quiver_base_url: System.get_env("QUIVER_BASE_URL", "https://api.quiverquant.com/beta"),

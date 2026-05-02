@@ -897,8 +897,15 @@ defmodule AlpacaTrader.Engine do
     buying_power = parse_float(get_in(ctx.account, ["buying_power"])) || 0.0
     notional = compute_notional(ctx)
 
-    # Simple check: can we afford at least one trade's notional?
-    buying_power >= notional
+    # Require not just enough for THIS trade but a post-trade reserve.
+    # Without this, the engine drains cash to ~\$0 across many quick
+    # entries (saw 7 buys in 5 min after a gate opened, taking cash
+    # \$22 → \$3 with no recoverable headroom for an exit + re-enter
+    # cycle). MIN_CASH_RESERVE env (default \$10) keeps a buffer.
+    reserve =
+      Application.get_env(:alpaca_trader, :min_cash_reserve, 10.0)
+
+    buying_power - notional >= reserve
   end
 
   defp compute_notional(ctx) do
